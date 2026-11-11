@@ -29,6 +29,7 @@ function getSkinLut() {
 export function configureCharacterMaterial(material, {
   toon,
   faceSdfEnabled,
+  faceRefineStrength = 0.45,
   hairSpecular,
   dayStrength,
   fillStrength,
@@ -131,7 +132,8 @@ export function configureCharacterMaterial(material, {
     if (isFace && faceSdfEnabled && faceSdf) {
       shader.uniforms.zfFaceSdfMap = { value: faceSdf }
       shader.uniforms.zfFaceShadowColor = { value: new THREE.Color('#788095') }
-      declarations.push('uniform sampler2D zfFaceSdfMap;', 'uniform vec3 zfFaceShadowColor;')
+      shader.uniforms.zfFaceRefineStrength = { value: faceRefineStrength }
+      declarations.push('uniform sampler2D zfFaceSdfMap;', 'uniform vec3 zfFaceShadowColor;', 'uniform float zfFaceRefineStrength;')
       effects.push(`
         vec3 zfFaceL = normalize(directionalLights[0].direction);
         mat3 zfFaceModelView = mat3(viewMatrix) * mat3(modelMatrix);
@@ -150,7 +152,9 @@ export function configureCharacterMaterial(material, {
         float zfFaceSdf = smoothstep(zfFaceMin, max(zfFaceMax, zfFaceMin + 0.0001), zfFaceValue);
         float zfFaceLit = smoothstep(0.38, 0.62, zfFaceSdf);
         float zfFaceRefine = smoothstep(0.22, 0.82, zfFaceSdfSample.b);
-        float zfFaceShadow = (1.0 - zfFaceLit) * mix(1.0, 0.55, zfFaceRefine);
+        float zfFaceTrick = smoothstep(0.08, 0.74, zfFaceSdfSample.a);
+        float zfFaceShadow = (1.0 - zfFaceLit) * mix(1.0, 0.55, zfFaceRefine * zfFaceRefineStrength);
+        zfFaceShadow *= mix(1.0, 0.78, zfFaceTrick * zfFaceRefineStrength);
         reflectedLight.directDiffuse *= mix(1.0, 0.28, zfFaceShadow);
         reflectedLight.indirectDiffuse *= mix(1.0, 0.76, zfFaceShadow);
         reflectedLight.directDiffuse *= mix(vec3(1.0), zfFaceShadowColor, 0.58 * zfFaceShadow);
