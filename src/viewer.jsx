@@ -13,7 +13,6 @@ const auxiliaryTexturePaths = [
   '/textures/T_actor_common_female_face_01_SDF.png',
   '/textures/T_actor_zhuangfy_hair_01_P.png',
   '/textures/T_actor_zhuangfy_cloth_01_P.png',
-  '/textures/T_actor_zhuangfy_cloth_02_P.png',
   '/textures/T_actor_laevat_hair_01_ST.png',
   '/textures/Copper_Matcap.png',
   '/textures/T_actor_zhuangfy_cloth_01_E.png',
@@ -46,10 +45,10 @@ function isExcludedSourceMesh(object, root) {
 
 function Model({ showMeshes, wireframe, toon, faceSdfEnabled, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
-  const [faceSdf, hairParams, cloth01Params, cloth02Params, hairSpecMask, eyeMatcap, clothEmission, rampAtlas] = useLoader(TextureLoader, auxiliaryTexturePaths)
+  const [faceSdf, hairParams, cloth01Params, hairSpecMask, eyeMatcap, clothEmission, rampAtlas] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
     const clone = scene.clone(true)
-    ;[faceSdf, hairParams, cloth01Params, cloth02Params, hairSpecMask].forEach((texture) => {
+    ;[faceSdf, hairParams, cloth01Params, hairSpecMask].forEach((texture) => {
       texture.flipY = false
       texture.colorSpace = THREE.NoColorSpace
       texture.needsUpdate = true
@@ -74,8 +73,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, hairSpecular, dayS
         const isHair = partName === 'Hair' && name.includes('hair')
         const isSkin = name.includes('skin')
         const isOutline = name.includes('outline')
-        const clothParams = name.includes('zhuangfy_cloth_01') ? cloth01Params
-          : name.includes('zhuangfy_cloth_02') ? cloth02Params : null
+        const clothParams = name.includes('zhuangfy_cloth_01') ? cloth01Params : null
 
         // The render GLB contains the matching albedo and normal maps. Keep
         // those authored material bindings; only attach the two external maps
@@ -136,7 +134,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, hairSpecular, dayS
       object.material = Array.isArray(object.material) ? repaired : repaired[0]
     })
     return clone
-  }, [scene, faceSdf, hairParams, cloth01Params, cloth02Params, hairSpecMask, eyeMatcap, clothEmission, rampAtlas, wireframe, toon, faceSdfEnabled, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
+  }, [scene, faceSdf, hairParams, cloth01Params, hairSpecMask, eyeMatcap, clothEmission, rampAtlas, wireframe, toon, faceSdfEnabled, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
 
   const meshRows = useMemo(() => {
     const groups = new Map()
@@ -301,7 +299,7 @@ export default function App() {
     ['头发参数 P', 'T_actor_zhuangfy_hair_01_P.png'],
     ['头发高光遮罩 ST', 'T_actor_laevat_hair_01_ST.png'],
     ['服装参数 P（01）', 'T_actor_zhuangfy_cloth_01_P.png'],
-    ['服装参数 P（02）', 'T_actor_zhuangfy_cloth_02_P.png'],
+    ['候选服装参数 P（02，未分配）', 'T_actor_zhuangfy_cloth_02_P.png'],
     ['服装自发光 E', 'T_actor_zhuangfy_cloth_01_E.png'],
     ['面部 SDF', 'T_actor_common_female_face_01_SDF.png'],
     ['虹膜 MatCap', 'Copper_Matcap.png'],
