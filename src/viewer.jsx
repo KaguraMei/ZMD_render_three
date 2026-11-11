@@ -95,9 +95,10 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
         }
         if (irisMaterial) {
           material.dispose()
-          const iris = new THREE.MeshStandardMaterial({
+          const iris = new THREE.MeshPhysicalMaterial({
             name: source.name, map: source.map || source.emissiveMap, color: '#ffffff',
-            roughness: 0.22, metalness: 0, side: source.side, stencilWrite: true,
+            roughness: 0.16, metalness: 0, clearcoat: 0.82, clearcoatRoughness: 0.08,
+            ior: 1.34, side: source.side, stencilWrite: true,
             stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp,
           })
           return configureCharacterMaterial(iris, {
