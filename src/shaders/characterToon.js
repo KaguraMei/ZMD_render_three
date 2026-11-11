@@ -75,14 +75,30 @@ export function configureCharacterMaterial(material, {
         'uniform float zfFillStrength;',
         'uniform float zfRimStrength;',
       )
+      const lightBegin = '#include <lights_fragment_begin>'
+      const directLightCall = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );'
+      const perLightRamp = `
+        {
+        vec3 zfDiffuseBeforeRamp = reflectedLight.directDiffuse;
+        ${directLightCall}
+        vec3 zfThisLightDiffuse = reflectedLight.directDiffuse - zfDiffuseBeforeRamp;
+        float zfThisLightNoL = dot(geometryNormal, directLight.direction);
+        vec4 zfThisLightRamp = texture2D(zfToonRamp, vec2(clamp(zfThisLightNoL * 0.5 + 0.5, 0.0, 1.0), (zfRampRow + 0.5) * 0.25));
+        float zfThisLightAux = mix(0.62, 1.0, zfThisLightRamp.a);
+        reflectedLight.directDiffuse = zfDiffuseBeforeRamp + zfThisLightDiffuse * zfThisLightRamp.rgb * zfThisLightAux * mix(0.12, 1.0, zfDayStrength);
+        }`
+      const lightChunk = THREE.ShaderChunk.lights_fragment_begin
+      if (lightChunk?.includes(directLightCall)) {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          lightBegin,
+          lightChunk.replaceAll(directLightCall, perLightRamp),
+        )
+      }
       effects.push(`
-        vec3 zfN = normalize(normal);
         vec3 zfL = normalize(directionalLights[0].direction);
-        float zfNoL = dot(zfN, zfL);
-        vec4 zfRampSample = texture2D(zfToonRamp, vec2(clamp(zfNoL * 0.5 + 0.5, 0.0, 1.0), (zfRampRow + 0.5) * 0.25));
-        float zfRampAux = mix(0.62, 1.0, zfRampSample.a);
-        reflectedLight.directDiffuse *= zfRampSample.rgb * zfRampAux * mix(0.12, 1.0, zfDayStrength);
 
+        vec3 zfN = normalize(normal);
+        float zfNoL = dot(zfN, zfL);
         vec3 zfTopLight = normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0));
         float zfTopNoL = max(dot(zfN, zfTopLight) + 0.22, 0.0);
         float zfTopFill = zfTopNoL * zfFillStrength * mix(1.15, 0.38, zfDayStrength);
