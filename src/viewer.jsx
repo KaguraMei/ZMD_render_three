@@ -146,7 +146,7 @@ function createCorneaShellGeometries(mesh, materialIndex) {
   return result
 }
 
-function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
+function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
   const [faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, skinThicknessMap] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
@@ -208,6 +208,11 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           material.roughness = 0.76
           material.userData.skinThicknessMap = skinThicknessMap
         }
+        if (isHair) {
+          material.roughness = Math.max(material.roughness ?? 0.5, 0.84)
+          material.metalness = 0
+          if ('clearcoat' in material) material.clearcoat = 0
+        }
         if (irisMaterial) {
           material.dispose()
           const iris = new THREE.MeshPhysicalMaterial({
@@ -217,7 +222,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
             stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp,
           })
           return configureCharacterMaterial(iris, {
-            toon, faceSdfEnabled, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, faceTrickStrength, hairParams, hairSpecMaskMap,
+            toon, faceSdfEnabled, hairSpecular, hairSpecularStrength, faceSdf, faceRefineMap, faceTrickMap, faceTrickStrength, hairParams, hairSpecMaskMap,
             eyeMatcap, skinLut, skinThicknessMap, rampAtlas, outlinePixels, dayStrength, fillStrength, rimStrength,
             scatterStrength, isIris: true,
           })
@@ -240,7 +245,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           return material
         }
         return configureCharacterMaterial(material, {
-          toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap,
+          toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, hairSpecularStrength, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap,
           eyeMatcap, skinLut, skinThicknessMap, rampAtlas, outlinePixels,
           clothParams,
           dayStrength, fillStrength, rimStrength, scatterStrength,
@@ -287,6 +292,18 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
       object.userData.viewerGeneratedCorneaMaterial.opacity = corneaStrength * 0.0034
     })
   }, [model, corneaStrength])
+
+  useEffect(() => {
+    model.traverse((object) => {
+      if (!object.isMesh) return
+      const original = object.userData.viewerOriginalMaterial ?? object.material
+      for (const material of Array.isArray(original) ? original : [original]) {
+        if (material?.name?.toLowerCase().includes('hair')) material.userData.zfHairSpecularStrength = hairSpecularStrength
+        const shader = material?.userData?.zfHairShader
+        if (shader?.uniforms?.zfHairSpecularStrength) shader.uniforms.zfHairSpecularStrength.value = hairSpecularStrength
+      }
+    })
+  }, [model, hairSpecularStrength])
 
   useEffect(() => () => {
     model.traverse((object) => {
@@ -338,7 +355,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
   )
 }
 
-function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, bloom, shadows, showGrid, lightLevel, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
+function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, bloom, shadows, showGrid, lightLevel, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
   const lightRef = useRef()
   const composerRef = useRef(null)
   const { gl, scene, camera, size } = useThree()
@@ -392,7 +409,7 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
       <Suspense fallback={null}>
         <Bounds fit clip observe margin={0.95}>
           <Center top>
-          <Model showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength} faceTrickStrength={faceTrickStrength} corneaStrength={corneaStrength} hairSpecular={hairSpecular} dayStrength={dayStrength / 100} fillStrength={fillStrength / 100} rimStrength={rimStrength / 100} scatterStrength={scatterStrength / 100} outlinePixels={outlinePixels} castShadows={shadows} onReady={onReady} onSelect={onSelect} />
+          <Model showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength} faceTrickStrength={faceTrickStrength} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength} dayStrength={dayStrength / 100} fillStrength={fillStrength / 100} rimStrength={rimStrength / 100} scatterStrength={scatterStrength / 100} outlinePixels={outlinePixels} castShadows={shadows} onReady={onReady} onSelect={onSelect} />
           </Center>
         </Bounds>
       </Suspense>
@@ -426,6 +443,7 @@ export default function App() {
   const [faceTrickStrength, setFaceTrickStrength] = useState(38)
   const [corneaStrength, setCorneaStrength] = useState(48)
   const [hairSpecular, setHairSpecular] = useState(true)
+  const [hairSpecularStrength, setHairSpecularStrength] = useState(32)
   const [dayStrength, setDayStrength] = useState(78)
   const [fillStrength, setFillStrength] = useState(34)
   const [rimStrength, setRimStrength] = useState(12)
@@ -530,7 +548,7 @@ export default function App() {
           </div>
 
           <div className="stage-wrap">
-          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
+          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength / 100} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
             {!modelLoaded && <div className="loading-overlay"><div className="loading"><LoaderCircle size={18} className="spin" /><span>正在载入 3D 模型与贴图</span></div></div>}
             <div className="stage-heading"><h1>角色预览</h1><p>实时材质与灯光观察</p></div>
             <div className="stage-meta"><span>{meshRows.length || 13} 个模型部件</span><i /> <span>377,305 个三角面</span><i /> <span>无动画</span></div>
@@ -563,6 +581,7 @@ export default function App() {
             <label className="setting-range"><span title="手工 UV 腮红代理，模拟 TrickTex 颜色叠加；不含原作表情贴纸动画">Trick 腮红代理</span><input aria-label="Trick 腮红代理强度" type="range" min="0" max="100" value={faceTrickStrength} onChange={(e) => setFaceTrickStrength(Number(e.target.value))} /><output>{faceTrickStrength}%</output></label>
             <label className="setting-range"><span title="从模型虹膜网格派生并复用蒙皮权重的透明凸面壳；只近似角膜，不包含独立角膜结构与真实折射">角膜壳代理</span><input aria-label="角膜壳代理强度" type="range" min="0" max="100" value={corneaStrength} onChange={(e) => setCorneaStrength(Number(e.target.value))} /><output>{corneaStrength}%</output></label>
             <label className="setting-row"><span><Scan size={15} />头发各向异性高光</span><button className={`switch ${hairSpecular ? 'on' : ''}`} role="switch" aria-checked={hairSpecular} onClick={() => setHairSpecular((v) => !v)}><i /></button></label>
+            <label className="setting-range"><span title="降低手工各向异性高光层的贡献；头发底材同时使用较高粗糙度">头发高光强度</span><input aria-label="头发高光强度" type="range" min="0" max="100" value={hairSpecularStrength} onChange={(e) => setHairSpecularStrength(Number(e.target.value))} /><output>{hairSpecularStrength}%</output></label>
             <label className="setting-row"><span><Scan size={15} />Bloom 后处理</span><button className={`switch ${bloom ? 'on' : ''}`} role="switch" aria-checked={bloom} onClick={() => setBloom((v) => !v)}><i /></button></label>
             <label className="setting-range"><span>日光直射</span><input aria-label="日光直射强度" type="range" min="0" max="100" value={dayStrength} onChange={(e) => setDayStrength(Number(e.target.value))} /><output>{dayStrength}%</output></label>
             <label className="setting-range"><span>顶光补色</span><input aria-label="顶光补色强度" type="range" min="0" max="100" value={fillStrength} onChange={(e) => setFillStrength(Number(e.target.value))} /><output>{fillStrength}%</output></label>

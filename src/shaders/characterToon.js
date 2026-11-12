@@ -16,6 +16,7 @@ export function configureCharacterMaterial(material, {
   faceTrickStrength = 0.38,
   hairParams,
   hairSpecMaskMap,
+  hairSpecularStrength = 0.32,
   clothParams,
   eyeMatcap,
   skinLut,
@@ -180,10 +181,13 @@ export function configureCharacterMaterial(material, {
     }
 
     if (isHair && hairSpecular && hairParams && hairSpecMaskMap) {
+      material.userData.zfHairSpecularStrength = hairSpecularStrength
       shader.uniforms.zfHairTint = { value: new THREE.Color('#c5edf0') }
       shader.uniforms.zfHairParams = { value: hairParams }
       shader.uniforms.zfHairSpecMask = { value: hairSpecMaskMap }
-      declarations.push('uniform vec3 zfHairTint;', 'uniform sampler2D zfHairParams;', 'uniform sampler2D zfHairSpecMask;')
+      shader.uniforms.zfHairSpecularStrength = { value: material.userData.zfHairSpecularStrength }
+      material.userData.zfHairShader = shader
+      declarations.push('uniform vec3 zfHairTint;', 'uniform sampler2D zfHairParams;', 'uniform sampler2D zfHairSpecMask;', 'uniform float zfHairSpecularStrength;')
       effects.push(`
         vec3 zfHairL = normalize(directionalLights[0].direction);
         vec3 zfHairV = normalize(vViewPosition);
@@ -206,14 +210,14 @@ export function configureCharacterMaterial(material, {
         zfHairT = normalize(mix(zfHairT, zfHairMeshTangent, clamp(zfHairP.r, 0.0, 1.0)));
 #endif
         vec3 zfHairH = normalize(zfHairL + zfHairV);
-        float zfHairSmoothness = clamp(zfHairP.a, 0.12, 0.82);
-        float zfHairReflectivity = clamp(zfHairP.g * zfHairSpecMaskValue, 0.0, 1.0);
+        float zfHairSmoothness = clamp(zfHairP.a, 0.12, 0.72);
+        float zfHairReflectivity = clamp(zfHairP.g * zfHairSpecMaskValue, 0.0, 0.72);
         float zfHairAniso = max(1.0 - pow(dot(zfHairT, zfHairH), 2.0), 0.0);
-        float zfHairPrimary = pow(zfHairAniso, mix(6.0, 22.0, zfHairSmoothness));
-        float zfHairSecondary = pow(zfHairAniso, mix(2.5, 7.0, zfHairSmoothness)) * 0.08;
+        float zfHairPrimary = pow(zfHairAniso, mix(5.0, 15.0, zfHairSmoothness));
+        float zfHairSecondary = pow(zfHairAniso, mix(2.5, 6.0, zfHairSmoothness)) * 0.035;
         float zfHairFacing = max(dot(zfHairN, zfHairL), 0.0);
         reflectedLight.directSpecular += directionalLights[0].color * zfHairTint
-          * (zfHairPrimary + zfHairSecondary) * zfHairFacing * zfHairReflectivity * 0.22;`)
+          * (zfHairPrimary + zfHairSecondary) * zfHairFacing * zfHairReflectivity * zfHairSpecularStrength * 0.12;`)
     }
 
     if (isIris && eyeMatcap) {
@@ -262,7 +266,7 @@ export function configureCharacterMaterial(material, {
   }
 
   material.customProgramCacheKey = () => [
-    'zf-character-v6', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0, isFace && faceTrickMap ? 1 : 0,
+    'zf-character-v7', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0, isFace && faceTrickMap ? 1 : 0,
     isHair && hairSpecular ? 1 : 0, isSkin && scatterStrength > 0 ? 1 : 0,
     isSkin && skinThicknessMap ? 1 : 0, clothParams ? 1 : 0, isIris ? 1 : 0, rampRow,
   ].join('-')
