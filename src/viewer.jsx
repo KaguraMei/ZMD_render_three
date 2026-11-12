@@ -46,11 +46,111 @@ function isExcludedSourceMesh(object, root) {
   return false
 }
 
-function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
+function createCorneaShellGeometries(mesh, materialIndex) {
+  const source = mesh.geometry
+  const position = source?.getAttribute('position')
+  if (!position) return []
+
+  const group = source.groups?.find((item) => item.materialIndex === materialIndex)
+  const range = group || (!source.groups?.length && materialIndex === 0
+    ? { start: 0, count: source.index?.count ?? position.count }
+    : null)
+  if (!range || range.count < 3) return []
+  const sourceIndex = source.index?.array
+  const triangleIndices = []
+  for (let i = range.start; i + 2 < range.start + range.count; i += 3) {
+    triangleIndices.push(sourceIndex ? [sourceIndex[i], sourceIndex[i + 1], sourceIndex[i + 2]] : [i, i + 1, i + 2])
+  }
+
+  const parent = new Map()
+  const find = (x) => {
+    if (!parent.has(x)) parent.set(x, x)
+    if (parent.get(x) !== x) parent.set(x, find(parent.get(x)))
+    return parent.get(x)
+  }
+  const join = (a, b) => {
+    const rootA = find(a)
+    const rootB = find(b)
+    if (rootA !== rootB) parent.set(rootB, rootA)
+  }
+  triangleIndices.forEach(([a, b, c]) => { join(a, b); join(b, c) })
+  const islands = new Map()
+  triangleIndices.forEach((triangle) => {
+    const root = find(triangle[0])
+    const island = islands.get(root) || []
+    island.push(triangle)
+    islands.set(root, island)
+  })
+
+  const uv = source.getAttribute('uv')
+  const result = []
+  for (const [islandNumber, triangles] of [...islands.values()].entries()) {
+    const vertexIds = [...new Set(triangles.flat())]
+    if (vertexIds.length < 12) continue
+    const indexBySource = new Map(vertexIds.map((id, index) => [id, index]))
+    const positions = new Float32Array(vertexIds.length * 3)
+    const uvs = uv ? new Float32Array(vertexIds.length * 2) : null
+    const skinIndex = mesh.isSkinnedMesh ? source.getAttribute('skinIndex') : null
+    const skinWeight = mesh.isSkinnedMesh ? source.getAttribute('skinWeight') : null
+    const skinIndices = skinIndex ? new Uint16Array(vertexIds.length * skinIndex.itemSize) : null
+    const skinWeights = skinWeight ? new Float32Array(vertexIds.length * skinWeight.itemSize) : null
+    vertexIds.forEach((sourceId, index) => {
+      const point = new THREE.Vector3().fromBufferAttribute(position, sourceId)
+      positions.set(point.toArray(), index * 3)
+      if (uv) uvs.set([uv.getX(sourceId), uv.getY(sourceId)], index * 2)
+      if (skinIndex) for (let c = 0; c < skinIndex.itemSize; c++) skinIndices[index * skinIndex.itemSize + c] = skinIndex.getComponent(sourceId, c)
+      if (skinWeight) for (let c = 0; c < skinWeight.itemSize; c++) skinWeights[index * skinWeight.itemSize + c] = skinWeight.getComponent(sourceId, c)
+    })
+
+    const indices = new Uint32Array(triangles.flatMap((triangle) => triangle.map((id) => indexBySource.get(id))))
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    if (uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    if (skinIndices) geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndices, skinIndex.itemSize))
+    if (skinWeights) geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeights, skinWeight.itemSize))
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    geometry.computeVertexNormals()
+
+    const points = geometry.getAttribute('position')
+    const normals = geometry.getAttribute('normal')
+    const center = new THREE.Vector3()
+    const averageNormal = new THREE.Vector3()
+    for (let i = 0; i < points.count; i++) {
+      center.add(new THREE.Vector3().fromBufferAttribute(points, i))
+      averageNormal.add(new THREE.Vector3().fromBufferAttribute(normals, i))
+    }
+    center.multiplyScalar(1 / points.count)
+    averageNormal.normalize()
+    let radius = 0
+    const planarOffsets = []
+    for (let i = 0; i < points.count; i++) {
+      const offset = new THREE.Vector3().fromBufferAttribute(points, i).sub(center)
+      offset.addScaledVector(averageNormal, -offset.dot(averageNormal))
+      planarOffsets.push(offset)
+      radius = Math.max(radius, offset.length())
+    }
+    if (radius < 1e-5) { geometry.dispose(); continue }
+
+    const domeHeight = radius * 0.075
+    for (let i = 0; i < points.count; i++) {
+      const radial = Math.min(planarOffsets[i].length() / radius, 1)
+      const lift = domeHeight * Math.pow(Math.max(1 - radial * radial, 0), 1.6)
+      const point = new THREE.Vector3().fromBufferAttribute(points, i).addScaledVector(averageNormal, lift)
+      points.setXYZ(i, point.x, point.y, point.z)
+    }
+    geometry.computeVertexNormals()
+    geometry.computeBoundingSphere()
+    result.push({ geometry, islandNumber, radius })
+  }
+  return result
+}
+
+function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
   const [faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
     const clone = scene.clone(true)
+    const corneaSources = []
     ;[faceSdf, faceRefineMap, hairParams, hairSpecMaskMap, cloth01Params].forEach((texture) => {
       texture.flipY = false
       texture.colorSpace = THREE.NoColorSpace
@@ -64,6 +164,10 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
     clone.traverse((object) => {
       if (!object.isMesh) return
       const original = Array.isArray(object.material) ? object.material : [object.material]
+      const irisMaterialIndex = original.findIndex((material) => material?.name?.toLowerCase().includes('iris'))
+      if (findPartName(object, clone) === 'Eye_HL' && irisMaterialIndex >= 0) {
+        corneaSources.push({ object, irisMaterialIndex })
+      }
       const partName = findPartName(object, clone)
       const repaired = original.map((source) => {
         const material = source.clone()
@@ -143,13 +247,57 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
       })
       object.material = Array.isArray(object.material) ? repaired : repaired[0]
     })
+    clone.updateMatrixWorld(true)
+    for (const { object, irisMaterialIndex } of corneaSources) {
+      if (object.isSkinnedMesh) object.skeleton.update()
+      const shells = createCorneaShellGeometries(object, irisMaterialIndex)
+      for (const { geometry, islandNumber } of shells) {
+        const cornea = new THREE.MeshPhysicalMaterial({
+          name: `GeneratedCornea_${islandNumber + 1}`,
+          color: '#e8f8ff', roughness: 0.055, metalness: 0,
+          transmission: 0.035, thickness: 0.35, ior: 1.376,
+          clearcoat: 0.96, clearcoatRoughness: 0.025,
+          transparent: true, opacity: 0.163, depthWrite: false,
+          side: THREE.DoubleSide, toneMapped: false,
+          stencilWrite: true, stencilRef: 1,
+          stencilFunc: THREE.EqualStencilFunc,
+          stencilZPass: THREE.KeepStencilOp,
+        })
+        const shell = object.isSkinnedMesh ? object.clone(false) : new THREE.Mesh()
+        shell.geometry = geometry
+        shell.material = cornea
+        shell.name = `GeneratedCornea_${islandNumber + 1}`
+        shell.userData.viewerGeneratedCornea = true
+        shell.userData.viewerGeneratedCorneaMaterial = cornea
+        shell.castShadow = false
+        shell.renderOrder = 3
+        shell.matrix.copy(object.matrix)
+        shell.matrixAutoUpdate = object.matrixAutoUpdate
+        object.parent?.add(shell)
+      }
+    }
     return clone
   }, [scene, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
+
+  useEffect(() => {
+    model.traverse((object) => {
+      if (!object.userData.viewerGeneratedCornea) return
+      object.userData.viewerGeneratedCorneaMaterial.opacity = corneaStrength * 0.0034
+    })
+  }, [model, corneaStrength])
+
+  useEffect(() => () => {
+    model.traverse((object) => {
+      if (!object.userData.viewerGeneratedCornea) return
+      object.geometry.dispose()
+      object.userData.viewerGeneratedCorneaMaterial.dispose()
+    })
+  }, [model])
 
   const meshRows = useMemo(() => {
     const groups = new Map()
     model.traverse((object) => {
-      if (!object.isMesh || isExcludedSourceMesh(object, model)) return
+      if (!object.isMesh || object.userData.viewerGeneratedCornea || isExcludedSourceMesh(object, model)) return
       const name = findPartName(object, model)
       const row = groups.get(name) || { name, ids: [], materials: new Set() }
       row.ids.push(object.uuid)
@@ -168,8 +316,8 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
       }
       const partName = findPartName(object, model)
       object.visible = !isExcludedSourceMesh(object, model) && (showMeshes[partName] ?? partName !== 'Armor')
-      object.castShadow = castShadows
-      object.renderOrder = partName === 'Eye_HL' ? 2 : partName === 'Face' ? 1 : 0
+      object.castShadow = object.userData.viewerGeneratedCornea ? false : castShadows
+      object.renderOrder = object.userData.viewerGeneratedCornea ? 3 : partName === 'Eye_HL' ? 2 : partName === 'Face' ? 1 : 0
       if (!object.userData.viewerOriginalMaterial) object.userData.viewerOriginalMaterial = object.material
       if (wireframe) {
         object.userData.viewerWireMaterial ||= new THREE.MeshBasicMaterial({ color: '#dce6f1', wireframe: true, side: THREE.DoubleSide })
@@ -188,7 +336,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
   )
 }
 
-function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, bloom, shadows, showGrid, lightLevel, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
+function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, bloom, shadows, showGrid, lightLevel, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
   const lightRef = useRef()
   const composerRef = useRef(null)
   const { gl, scene, camera, size } = useThree()
@@ -242,7 +390,7 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
       <Suspense fallback={null}>
         <Bounds fit clip observe margin={0.95}>
           <Center top>
-          <Model showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength} faceTrickStrength={faceTrickStrength} hairSpecular={hairSpecular} dayStrength={dayStrength / 100} fillStrength={fillStrength / 100} rimStrength={rimStrength / 100} scatterStrength={scatterStrength / 100} outlinePixels={outlinePixels} castShadows={shadows} onReady={onReady} onSelect={onSelect} />
+          <Model showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength} faceTrickStrength={faceTrickStrength} corneaStrength={corneaStrength} hairSpecular={hairSpecular} dayStrength={dayStrength / 100} fillStrength={fillStrength / 100} rimStrength={rimStrength / 100} scatterStrength={scatterStrength / 100} outlinePixels={outlinePixels} castShadows={shadows} onReady={onReady} onSelect={onSelect} />
           </Center>
         </Bounds>
       </Suspense>
@@ -274,6 +422,7 @@ export default function App() {
   const [faceSdfEnabled, setFaceSdfEnabled] = useState(true)
   const [faceRefineStrength, setFaceRefineStrength] = useState(45)
   const [faceTrickStrength, setFaceTrickStrength] = useState(38)
+  const [corneaStrength, setCorneaStrength] = useState(48)
   const [hairSpecular, setHairSpecular] = useState(true)
   const [dayStrength, setDayStrength] = useState(78)
   const [fillStrength, setFillStrength] = useState(34)
@@ -378,7 +527,7 @@ export default function App() {
           </div>
 
           <div className="stage-wrap">
-          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} hairSpecular={hairSpecular} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
+          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
             {!modelLoaded && <div className="loading-overlay"><div className="loading"><LoaderCircle size={18} className="spin" /><span>正在载入 3D 模型与贴图</span></div></div>}
             <div className="stage-heading"><h1>角色预览</h1><p>实时材质与灯光观察</p></div>
             <div className="stage-meta"><span>{meshRows.length || 13} 个模型部件</span><i /> <span>377,305 个三角面</span><i /> <span>无动画</span></div>
@@ -409,6 +558,7 @@ export default function App() {
             <label className="setting-row"><span><Scan size={15} />面部 SDF 阴影</span><button className={`switch ${faceSdfEnabled ? 'on' : ''}`} role="switch" aria-checked={faceSdfEnabled} onClick={() => setFaceSdfEnabled((v) => !v)}><i /></button></label>
             <label className="setting-range"><span title="R/B/A 来自当前 Face UV 几何派生；不是原始手绘 SdfRefineTex">脸部 refine 代理</span><input aria-label="脸部 refine 代理强度" type="range" min="0" max="100" value={faceRefineStrength} onChange={(e) => setFaceRefineStrength(Number(e.target.value))} /><output>{faceRefineStrength}%</output></label>
             <label className="setting-range"><span title="手工 UV 腮红代理，模拟 TrickTex 颜色叠加；不含原作表情贴纸动画">Trick 腮红代理</span><input aria-label="Trick 腮红代理强度" type="range" min="0" max="100" value={faceTrickStrength} onChange={(e) => setFaceTrickStrength(Number(e.target.value))} /><output>{faceTrickStrength}%</output></label>
+            <label className="setting-range"><span title="从模型虹膜网格派生并复用蒙皮权重的透明凸面壳；只近似角膜，不包含独立角膜结构与真实折射">角膜壳代理</span><input aria-label="角膜壳代理强度" type="range" min="0" max="100" value={corneaStrength} onChange={(e) => setCorneaStrength(Number(e.target.value))} /><output>{corneaStrength}%</output></label>
             <label className="setting-row"><span><Scan size={15} />头发各向异性高光</span><button className={`switch ${hairSpecular ? 'on' : ''}`} role="switch" aria-checked={hairSpecular} onClick={() => setHairSpecular((v) => !v)}><i /></button></label>
             <label className="setting-row"><span><Scan size={15} />Bloom 后处理</span><button className={`switch ${bloom ? 'on' : ''}`} role="switch" aria-checked={bloom} onClick={() => setBloom((v) => !v)}><i /></button></label>
             <label className="setting-range"><span>日光直射</span><input aria-label="日光直射强度" type="range" min="0" max="100" value={dayStrength} onChange={(e) => setDayStrength(Number(e.target.value))} /><output>{dayStrength}%</output></label>
