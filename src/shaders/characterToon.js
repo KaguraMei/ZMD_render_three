@@ -15,6 +15,7 @@ export function configureCharacterMaterial(material, {
   faceTrickMap,
   faceTrickStrength = 0.38,
   hairParams,
+  hairSpecMaskMap,
   clothParams,
   eyeMatcap,
   skinLut,
@@ -165,15 +166,17 @@ export function configureCharacterMaterial(material, {
       )
     }
 
-    if (isHair && hairSpecular && hairParams) {
+    if (isHair && hairSpecular && hairParams && hairSpecMaskMap) {
       shader.uniforms.zfHairTint = { value: new THREE.Color('#c5edf0') }
       shader.uniforms.zfHairParams = { value: hairParams }
-      declarations.push('uniform vec3 zfHairTint;', 'uniform sampler2D zfHairParams;')
+      shader.uniforms.zfHairSpecMask = { value: hairSpecMaskMap }
+      declarations.push('uniform vec3 zfHairTint;', 'uniform sampler2D zfHairParams;', 'uniform sampler2D zfHairSpecMask;')
       effects.push(`
         vec3 zfHairL = normalize(directionalLights[0].direction);
         vec3 zfHairV = normalize(vViewPosition);
         vec3 zfHairN = normalize(normal);
         vec4 zfHairP = texture2D(zfHairParams, vMapUv);
+        float zfHairSpecMaskValue = texture2D(zfHairSpecMask, vMapUv).r;
         vec3 zfHairDpdx = dFdx(vViewPosition);
         vec3 zfHairDpdy = dFdy(vViewPosition);
         vec2 zfHairDuvdx = dFdx(vMapUv);
@@ -191,7 +194,7 @@ export function configureCharacterMaterial(material, {
 #endif
         vec3 zfHairH = normalize(zfHairL + zfHairV);
         float zfHairSmoothness = clamp(zfHairP.a, 0.12, 0.82);
-        float zfHairReflectivity = clamp(zfHairP.g, 0.0, 1.0);
+        float zfHairReflectivity = clamp(zfHairP.g * zfHairSpecMaskValue, 0.0, 1.0);
         float zfHairAniso = max(1.0 - pow(dot(zfHairT, zfHairH), 2.0), 0.0);
         float zfHairPrimary = pow(zfHairAniso, mix(6.0, 22.0, zfHairSmoothness));
         float zfHairSecondary = pow(zfHairAniso, mix(2.5, 7.0, zfHairSmoothness)) * 0.08;

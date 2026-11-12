@@ -27,7 +27,7 @@
 | 衣物参数 | 读取 P 图：R 金属度、G 反射率、B AO、A 光滑度；附加高光与弱 AO | 通道含义按 MyZmd shader 读取方式实现。当前模型只有 `cloth_01` 的面片分配。导出报告列出了 `cloth_02` 材质槽，但检查 GLB 与 FBX 的面片材质索引后确认所有相关网格均为材质索引 0，没有面片使用 `cloth_02`。候选 P02 仍显示在贴图列表，但不会加载进着色器 |
 | 面部阴影与 Trick | 基础 SDF RG 计算朝向阴影；独立 refine 代理控制覆盖、SSS 和边缘；另用手工腮红代理叠加颜色 | refine 代理 R=网格覆盖 SSS 权重、G=中性值、B=阴影区域、A=UV 边缘轮廓；Trick 腮红图按 Face UV 覆盖裁切并可独立调强度。二者均为代理；原作 refine 美术图和表情/贴纸动画仍缺失 |
 | 皮肤 | 静态手工皮肤 LUT；按视角边缘和主光背光方向叠加轻量散射，Face SSS 按 refine 代理 R 通道调制 | LUT 色阶可在 `tools/skin_lut_palette.json` 修改。尝试从 Body 网格烘焙厚度代理，但仅 13.6% 顶点能沿法线找到对侧表面，候选图未接入实时 shader，避免把稀疏命中显示成斑驳散射 |
-| 头发高光 | 优先使用 GLB 的 TANGENT 属性，用 P.R 混合切线方向、P.G 控制反射率、P.A 控制光滑度，并叠加两层各向异性高光 | 已生成并启用 `ZhuangFangyi_render_tangent.glb`；ST 在 Blender 源材质中接入 Bump.Normal，Three 不再把 ST.R 错当高光遮罩。当前未找到独立 SpecularMask，强度使用保守固定值 |
+| 头发高光 | 使用 GLB 的 TANGENT，P.R 混合切线方向、P.G 控制反射率、P.A 控制光滑度；另用 P.A 与 Hair UV 派生遮罩限制高光区域 | 已生成并启用 `ZhuangFangyi_render_tangent.glb`。ST 在源材质中接入 Bump.Normal，Three 不采样 ST.R。专用遮罩代理不是原始 SpecularMask；整体强度仍固定为保守值 |
 | 眼睛 | 虹膜使用视空间反射向量采样铜色 MatCap，并叠加 Fresnel 与 MeshPhysicalMaterial 清漆；眼白写入 stencil，眼部高光层按 stencil 测试 | MatCap 坐标已按视空间反射修正；没有独立角膜网格/深度，未实现视差折射 |
 | 描边 | Three.js `OutlinePass` 对角色整体做屏幕空间描边，像素宽度可调 | 隐藏了 GLB 的 `ZF_Outline_07` 壳网格，因为其与脸部重叠会产生脏点；后处理描边不依赖网格顶点外扩，当前也没有顶点宽度遮罩 |
 | 衣物自发光 | 服装 01 使用 E 图和低强度紫色发光 | 当前 E 图仅 512² 且亮区稀疏，效果较轻 |
@@ -41,7 +41,7 @@ MyZmd 的 `ZmdToonMain` / `ZmdHairToonMain` 路径把 P/ORM 类贴图作为材�
 ## 已完成项与下一步数据需求
 
 1. 已完成：加入衣物、皮肤/脸、头发和预留行的手工 RGBA Ramp；色阶配置可在 `tools/character_ramp_palette.json` 调整。
-2. 已确认源 Blender 中 ST/HN 与 Hair UVMap 配套，并已将 TANGENT 导出到当前 GLB。仍缺独立 SpecularMask；当前高光不再采样 ST.R，后续可按 UV 手绘专用遮罩。
+2. 已完成：Hair UV 对应的切线已导出；高光遮罩代理由 Hair UV 覆盖和 P.A 光滑度阈值生成，并乘入 P.G 反射率响应。ST 仍只作细节法线，不采样 ST.R。原作 SpecularMask 与专用 LUT 仍缺失；代理可运行 `tools/build_hair_spec_mask_proxy.py` 重建。
 3. 已完成：face UV 派生 refine 代理图，并按源码 RGBA 语义接入；另加手工淡腮红 Trick 代理和独立滑杆。基础 SDF B/A 不再被误当作 refine/trick。R/B/A 是几何派生权重，G 保持中性；原始 `SdfRefineTex` 美术数据及 Trick 表情/贴纸动画仍缺失。
 4. 已完成：皮肤 LUT 改为手工色阶配置和静态 PNG。已尝试 Blender 法线射线厚度烘焙，但 Body 是开放/不完整表面，射线命中率仅 13.6%；候选图保存在 `tools/body_skin_thickness_candidate.png`，不参与实时渲染。要做可信完整 SSS，仍需闭合皮肤几何或人工厚度贴图及透射参数。
 5. 已完成可由现有模型支持的部分：修正 MatCap 视空间反射采样并保留 stencil 高光层/清漆。完整角膜效果仍需要独立几何、眼球深度或视差参数。

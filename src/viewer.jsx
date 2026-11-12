@@ -14,6 +14,7 @@ const auxiliaryTexturePaths = [
   '/textures/T_actor_zhuangfy_face_01_Refine_Proxy.png',
   '/textures/T_actor_zhuangfy_face_01_Trick_Proxy.png',
   '/textures/T_actor_zhuangfy_hair_01_P.png',
+  '/textures/T_actor_zhuangfy_hair_01_SpecMask_Proxy.png',
   '/textures/T_actor_zhuangfy_cloth_01_P.png',
   '/textures/Copper_Matcap.png',
   '/textures/T_actor_zhuangfy_cloth_01_E.png',
@@ -47,10 +48,10 @@ function isExcludedSourceMesh(object, root) {
 
 function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
-  const [faceSdf, faceRefineMap, faceTrickMap, hairParams, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut] = useLoader(TextureLoader, auxiliaryTexturePaths)
+  const [faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
     const clone = scene.clone(true)
-    ;[faceSdf, faceRefineMap, hairParams, cloth01Params].forEach((texture) => {
+    ;[faceSdf, faceRefineMap, hairParams, hairSpecMaskMap, cloth01Params].forEach((texture) => {
       texture.flipY = false
       texture.colorSpace = THREE.NoColorSpace
       texture.needsUpdate = true
@@ -89,6 +90,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           // The Blender source wires ST as a detail-normal input. It is not a
           // high-spec mask, so the hair lobe uses the mesh TANGENT and P map.
           material.userData.hairParamsMap = hairParams
+          material.userData.hairSpecMaskMap = hairSpecMaskMap
         }
         if (clothParams) material.userData.clothParamsMap = clothParams
         if (clothParams && name.includes('cloth_01')) {
@@ -109,7 +111,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
             stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp,
           })
           return configureCharacterMaterial(iris, {
-            toon, faceSdfEnabled, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, faceTrickStrength, hairParams,
+            toon, faceSdfEnabled, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, faceTrickStrength, hairParams, hairSpecMaskMap,
             eyeMatcap, skinLut, rampAtlas, outlinePixels, dayStrength, fillStrength, rimStrength,
             scatterStrength, isIris: true,
           })
@@ -132,7 +134,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           return material
         }
         return configureCharacterMaterial(material, {
-          toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, hairParams,
+          toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap,
           eyeMatcap, skinLut, rampAtlas, outlinePixels,
           clothParams,
           dayStrength, fillStrength, rimStrength, scatterStrength,
@@ -142,7 +144,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
       object.material = Array.isArray(object.material) ? repaired : repaired[0]
     })
     return clone
-  }, [scene, faceSdf, faceRefineMap, faceTrickMap, hairParams, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
+  }, [scene, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
 
   const meshRows = useMemo(() => {
     const groups = new Map()
@@ -308,6 +310,7 @@ export default function App() {
     ['虹膜底色', 'T_actor_zhuangfy_iris_01_D.png'],
     ['眼部高光底色', 'T_actor_laevat_face_01_D.png'],
     ['头发参数 P', 'T_actor_zhuangfy_hair_01_P.png'],
+    ['头发高光响应代理', 'T_actor_zhuangfy_hair_01_SpecMask_Proxy.png'],
     ['头发源 ST（细节法线）', 'T_actor_laevat_hair_01_ST.png'],
     ['服装参数 P（01）', 'T_actor_zhuangfy_cloth_01_P.png'],
     ['候选服装参数 P（02，未分配）', 'T_actor_zhuangfy_cloth_02_P.png'],

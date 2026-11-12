@@ -18,6 +18,7 @@
 - `Hair` 材质引用打包的 `T_actor_laevat_hair_01_ST.png`（512×512）及 `T_actor_laevat_hair_01_HN.png`（2048×2048）。ST 节点接入 Bump 的 Normal，HN 接入法线节点与漫反射节点。
 - `.blend` 中解包所得的 ST、HN 像素与 `public/textures/` 对应文件逐像素相同。ST 在 Blender 源材质接入 Bump.Normal，不是可直接当 SpecularMask 使用的遮罩。Hair 网格可从活动 UV 计算切线；已用导出脚本生成 `render_export/ZhuangFangyi_render_tangent.glb`，其 Hair primitives 带有 TANGENT 属性。
 - UV 预览显示 ST 贴图和 Hair 活动 UV 同处一个坐标空间。Three 当前改用导出的 TANGENT；原查看器把 ST.R 当高光遮罩的绑定已移除。
+- `T_actor_zhuangfy_hair_01_SpecMask_Proxy.png` 由源 P.A 光滑度响应裁切 Hair UV 覆盖生成，并在 shader 中与 P.G 反射率相乘，用来保守限制各向异性高光。它是按现有参数图派生的遮罩代理；源工程仍没有独立 SpecularMask 或 SpecularRefineF0Tex。
 
 ### Face SDF 与 refine 通道
 
