@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { Bounds, Center, OrbitControls, useGLTF } from '@react-three/drei'
+import { Bounds, Center, Environment, Lightformer, OrbitControls, useGLTF } from '@react-three/drei'
 import { Box, CircleHelp, ChevronDown, Eye, EyeOff, Focus, Gauge, Grid2X2, Layers3, Lightbulb, LoaderCircle, Maximize2, RotateCcw, Scan, Sun, X } from 'lucide-react'
 import * as THREE from 'three'
 import { TextureLoader } from 'three'
@@ -28,42 +28,10 @@ const labels = {
 }
 
 const environmentPresets = {
-  studio: { label: '摄影棚', sky: '#737c8a', horizon: '#b1a99d', ground: '#37333a', lights: ['#fff3dc', '#d9e6ff'] },
-  warm: { label: '暖色室内', sky: '#74544a', horizon: '#d69d70', ground: '#3d2929', lights: ['#ffd2a0', '#fff0d2'] },
-  cool: { label: '冷色展厅', sky: '#3b596e', horizon: '#91bdc9', ground: '#242f43', lights: ['#d5f4ff', '#9ec7ff'] },
-  sunset: { label: '黄昏', sky: '#443c62', horizon: '#e38c72', ground: '#342b46', lights: ['#ffd0a2', '#f5a9bd'] },
-}
-
-function createProceduralEnvironment(presetName) {
-  const preset = environmentPresets[presetName] || environmentPresets.studio
-  const canvas = document.createElement('canvas')
-  canvas.width = 1024
-  canvas.height = 512
-  const ctx = canvas.getContext('2d')
-  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height)
-  gradient.addColorStop(0, preset.sky)
-  gradient.addColorStop(0.47, preset.horizon)
-  gradient.addColorStop(0.53, preset.horizon)
-  gradient.addColorStop(1, preset.ground)
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  preset.lights.forEach((color, index) => {
-    const x = canvas.width * (0.29 + index * 0.42)
-    const y = canvas.height * (0.22 + index * 0.09)
-    const glow = ctx.createRadialGradient(x, y, 5, x, y, 170)
-    glow.addColorStop(0, `${color}d9`)
-    glow.addColorStop(0.22, `${color}72`)
-    glow.addColorStop(1, `${color}00`)
-    ctx.fillStyle = glow
-    ctx.fillRect(x - 180, y - 180, 360, 360)
-    ctx.fillStyle = `${color}aa`
-    ctx.fillRect(x - 70, y - 20, 140, 38)
-  })
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.mapping = THREE.EquirectangularReflectionMapping
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.needsUpdate = true
-  return texture
+  studio: { label: '摄影棚 · 柔和箱灯', file: 'studio_small_03_1k.hdr', key: '#fff0d6', fill: '#d7e6ff', top: '#ffffff' },
+  warm: { label: '公寓 · 暖室内', file: 'lebombo_1k.hdr', key: '#ffd0a0', fill: '#fff1d8', top: '#fff6e8' },
+  city: { label: '城市 · 冷色反射', file: 'potsdamer_platz_1k.hdr', key: '#d9edff', fill: '#a9d9ff', top: '#ffffff' },
+  sunset: { label: '威尼斯 · 黄昏', file: 'venice_sunset_1k.hdr', key: '#ffb18a', fill: '#d9c5ff', top: '#fff0dc' },
 }
 
 function findPartName(object, root) {
@@ -421,7 +389,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
   )
 }
 
-function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, environmentPreset, bloom, shadows, showGrid, lightLevel, mainLightAzimuth, mainLightElevation, windEnabled, windStrength, windSpeed, windDirection, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
+function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, environmentPreset, environmentRotation, environmentBackground, lightformerStrength, bloom, shadows, showGrid, lightLevel, mainLightAzimuth, mainLightElevation, windEnabled, windStrength, windSpeed, windDirection, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
   const lightRef = useRef()
   const composerRef = useRef(null)
   const { gl, scene, camera, size } = useThree()
@@ -433,6 +401,14 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
     10 * Math.sin(lightElevation),
     10 * Math.cos(lightElevation) * Math.cos(lightAzimuth),
   ]
+  const environmentLights = useMemo(() => {
+    const preset = environmentPresets[environmentPreset]
+    return <>
+      <Lightformer form="rect" color={preset.key} intensity={lightformerStrength} position={[-3.5, 2.8, 3.2]} rotation={[0, 0.72, 0]} scale={[1.1, 4.8, 1]} />
+      <Lightformer form="rect" color={preset.fill} intensity={lightformerStrength * 0.64} position={[3.6, 1.6, 2.4]} rotation={[0, -0.82, 0]} scale={[0.85, 3.8, 1]} />
+      <Lightformer form="rect" color={preset.top} intensity={lightformerStrength * 0.52} position={[0, 4.4, -0.8]} rotation={[Math.PI / 2, 0, 0]} scale={[4.4, 2.3, 1]} />
+    </>
+  }, [environmentPreset, lightformerStrength])
   useEffect(() => {
     const composer = createCharacterComposer(gl, scene, camera, size, bloom, modelRoot)
     composerRef.current = composer
@@ -448,19 +424,11 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
     }
   }, [outlinePixels, modelRoot])
   useEffect(() => {
-    const pmrem = new THREE.PMREMGenerator(gl)
-    const source = createProceduralEnvironment(environmentPreset)
-    const environmentTarget = pmrem.fromEquirectangular(source)
-    scene.environment = environmentTarget.texture
+    const rotation = THREE.MathUtils.degToRad(environmentRotation)
     scene.environmentIntensity = iblStrength / 100
-    return () => {
-      if (scene.environment === environmentTarget.texture) scene.environment = null
-      environmentTarget.dispose()
-      source.dispose()
-      pmrem.dispose()
-    }
-  }, [gl, scene, environmentPreset])
-  useEffect(() => { scene.environmentIntensity = iblStrength / 100 }, [scene, iblStrength])
+    scene.environmentRotation.set(0, rotation, 0)
+    if (scene.background?.isTexture) scene.backgroundRotation.set(0, rotation, 0)
+  }, [scene, iblStrength, environmentRotation, environmentPreset, environmentBackground])
   useEffect(() => {
     composerRef.current?.setSize(size.width, size.height)
   }, [size])
@@ -469,6 +437,28 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
     <>
       <color attach="background" args={[stageTint]} />
       <fog attach="fog" args={[stageTint, 13, 27]} />
+      <Suspense fallback={null}>
+        {environmentBackground ? (
+          <Environment
+            key={`${environmentPreset}-background`}
+            files={`/environments/${environmentPresets[environmentPreset].file}`}
+            environmentIntensity={iblStrength / 100}
+            environmentRotation={[0, THREE.MathUtils.degToRad(environmentRotation), 0]}
+            background
+            backgroundIntensity={0.16}
+            backgroundBlurriness={0.32}
+          />
+        ) : (
+          <Environment
+            key={`${environmentPreset}-lightformers`}
+            files={`/environments/${environmentPresets[environmentPreset].file}`}
+            environmentIntensity={iblStrength / 100}
+            environmentRotation={[0, THREE.MathUtils.degToRad(environmentRotation), 0]}
+            resolution={256}
+            frames={1}
+          >{environmentLights}</Environment>
+        )}
+      </Suspense>
       <ambientLight intensity={0.38 * lightScale} />
       <hemisphereLight args={['#f5f3ef', '#77716b', 0.28 * lightScale]} />
       <directionalLight ref={lightRef} position={mainLightPosition} intensity={2.2 * lightScale} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-near={0.5} shadow-camera-far={25} shadow-camera-left={-7} shadow-camera-right={7} shadow-camera-top={8} shadow-camera-bottom={-4} shadow-bias={-0.0001} shadow-normalBias={0.035} />
@@ -522,8 +512,11 @@ export default function App() {
   const [rimStrength, setRimStrength] = useState(12)
   const [scatterStrength, setScatterStrength] = useState(18)
   const [outlinePixels, setOutlinePixels] = useState(1.8)
-  const [iblStrength, setIblStrength] = useState(42)
+  const [iblStrength, setIblStrength] = useState(8)
   const [environmentPreset, setEnvironmentPreset] = useState('studio')
+  const [environmentRotation, setEnvironmentRotation] = useState(180)
+  const [environmentBackground, setEnvironmentBackground] = useState(false)
+  const [lightformerStrength, setLightformerStrength] = useState(0.35)
   const [mainLightAzimuth, setMainLightAzimuth] = useState(50)
   const [mainLightElevation, setMainLightElevation] = useState(50)
   const [windEnabled, setWindEnabled] = useState(true)
@@ -628,7 +621,7 @@ export default function App() {
           </div>
 
           <div className="stage-wrap">
-          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength / 100} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} environmentPreset={environmentPreset} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} mainLightAzimuth={mainLightAzimuth} mainLightElevation={mainLightElevation} windEnabled={windEnabled} windStrength={windStrength} windSpeed={windSpeed} windDirection={windDirection} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
+          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength / 100} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} environmentPreset={environmentPreset} environmentRotation={environmentRotation} environmentBackground={environmentBackground} lightformerStrength={lightformerStrength} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} mainLightAzimuth={mainLightAzimuth} mainLightElevation={mainLightElevation} windEnabled={windEnabled} windStrength={windStrength} windSpeed={windSpeed} windDirection={windDirection} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
             {!modelLoaded && <div className="loading-overlay"><div className="loading"><LoaderCircle size={18} className="spin" /><span>正在载入 3D 模型与贴图</span></div></div>}
             <div className="stage-heading"><h1>角色预览</h1><p>实时材质与灯光观察</p></div>
             <div className="stage-meta"><span>{meshRows.length || 13} 个模型部件</span><i /> <span>377,305 个三角面</span><i /> <span>无动画</span></div>
@@ -654,6 +647,9 @@ export default function App() {
           <section className="inspect-section">
             <div className="section-heading"><span>渲染设置</span><Gauge size={14} /></div>
             <label className="setting-select"><span>环境预设</span><select aria-label="环境预设" value={environmentPreset} onChange={(e) => setEnvironmentPreset(e.target.value)}>{Object.entries(environmentPresets).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}</select></label>
+            <label className="setting-range"><span>环境旋转</span><input aria-label="环境旋转" type="range" min="0" max="359" value={environmentRotation} onChange={(e) => setEnvironmentRotation(Number(e.target.value))} /><output>{environmentRotation}°</output></label>
+            <label className="setting-range"><span title="环境软箱反射强度；主光仍负责直接照明与投影阴影">软箱灯条</span><input aria-label="软箱灯条强度" type="range" min="0" max="10" step="0.1" value={lightformerStrength} onChange={(e) => setLightformerStrength(Number(e.target.value))} /><output>{lightformerStrength.toFixed(1)}</output></label>
+            <label className="setting-row"><span><Sun size={15} />显示 HDR 环境背景</span><button className={`switch ${environmentBackground ? 'on' : ''}`} role="switch" aria-checked={environmentBackground} onClick={() => setEnvironmentBackground((v) => !v)}><i /></button></label>
             <label className="setting-range"><span>主光方位</span><input aria-label="主光方位" type="range" min="0" max="360" value={mainLightAzimuth} onChange={(e) => setMainLightAzimuth(Number(e.target.value))} /><output>{mainLightAzimuth}°</output></label>
             <label className="setting-range"><span>主光高度</span><input aria-label="主光高度" type="range" min="10" max="85" value={mainLightElevation} onChange={(e) => setMainLightElevation(Number(e.target.value))} /><output>{mainLightElevation}°</output></label>
             <label className="setting-row"><span><Scan size={15} />风动与柔软感</span><button className={`switch ${windEnabled ? 'on' : ''}`} role="switch" aria-checked={windEnabled} onClick={() => setWindEnabled((v) => !v)}><i /></button></label>
