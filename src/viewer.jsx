@@ -8,15 +8,16 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { configureCharacterMaterial } from './shaders/characterToon.js'
 import { createCharacterComposer } from './shaders/endfieldPost.js'
 
-const MODEL_URL = '/models/ZhuangFangyi_render.glb'
+const MODEL_URL = '/models/ZhuangFangyi_render_tangent.glb'
 const auxiliaryTexturePaths = [
   '/textures/T_actor_common_female_face_01_SDF.png',
+  '/textures/T_actor_zhuangfy_face_01_Refine_Proxy.png',
   '/textures/T_actor_zhuangfy_hair_01_P.png',
   '/textures/T_actor_zhuangfy_cloth_01_P.png',
-  '/textures/T_actor_laevat_hair_01_ST.png',
   '/textures/Copper_Matcap.png',
   '/textures/T_actor_zhuangfy_cloth_01_E.png',
   '/textures/toon_character_ramp.png',
+  '/textures/toon_skin_lut.png',
 ]
 const labels = {
   Armor: '装甲', Clothing: '服装', Eye_HL: '眼部高光', Face: '面部', Gloves: '手套',
@@ -45,15 +46,15 @@ function isExcludedSourceMesh(object, root) {
 
 function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
-  const [faceSdf, hairParams, cloth01Params, hairSpecMask, eyeMatcap, clothEmission, rampAtlas] = useLoader(TextureLoader, auxiliaryTexturePaths)
+  const [faceSdf, faceRefineMap, hairParams, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
     const clone = scene.clone(true)
-    ;[faceSdf, hairParams, cloth01Params, hairSpecMask].forEach((texture) => {
+    ;[faceSdf, faceRefineMap, hairParams, cloth01Params].forEach((texture) => {
       texture.flipY = false
       texture.colorSpace = THREE.NoColorSpace
       texture.needsUpdate = true
     })
-    ;[eyeMatcap, clothEmission, rampAtlas].forEach((texture) => {
+    ;[eyeMatcap, clothEmission, rampAtlas, skinLut].forEach((texture) => {
       texture.flipY = false
       texture.colorSpace = THREE.SRGBColorSpace
       texture.needsUpdate = true
@@ -78,10 +79,14 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
         // The render GLB contains the matching albedo and normal maps. Keep
         // those authored material bindings; only attach the two external maps
         // that are not part of the export.
-        if (isFace) material.userData.faceSdfMap = faceSdf
+        if (isFace) {
+          material.userData.faceSdfMap = faceSdf
+          material.userData.faceRefineMap = faceRefineMap
+        }
         if (isHair) {
+          // The Blender source wires ST as a detail-normal input. It is not a
+          // high-spec mask, so the hair lobe uses the mesh TANGENT and P map.
           material.userData.hairParamsMap = hairParams
-          material.userData.hairSpecMask = hairSpecMask
         }
         if (clothParams) material.userData.clothParamsMap = clothParams
         if (clothParams && name.includes('cloth_01')) {
@@ -102,8 +107,8 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
             stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp,
           })
           return configureCharacterMaterial(iris, {
-            toon, faceSdfEnabled, hairSpecular, faceSdf, hairParams, hairSpecMask,
-            eyeMatcap, rampAtlas, outlinePixels, dayStrength, fillStrength, rimStrength,
+            toon, faceSdfEnabled, hairSpecular, faceSdf, faceRefineMap, hairParams,
+            eyeMatcap, skinLut, rampAtlas, outlinePixels, dayStrength, fillStrength, rimStrength,
             scatterStrength, isIris: true,
           })
         } else if (eyeWhite || eyeHighlight) {
@@ -125,8 +130,8 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           return material
         }
         return configureCharacterMaterial(material, {
-          toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, hairSpecular, faceSdf, hairParams, hairSpecMask,
-          eyeMatcap, rampAtlas, outlinePixels,
+          toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, hairSpecular, faceSdf, faceRefineMap, hairParams,
+          eyeMatcap, skinLut, rampAtlas, outlinePixels,
           clothParams,
           dayStrength, fillStrength, rimStrength, scatterStrength,
           isFace, isHair, isSkin, isOutline,
@@ -135,7 +140,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
       object.material = Array.isArray(object.material) ? repaired : repaired[0]
     })
     return clone
-  }, [scene, faceSdf, hairParams, cloth01Params, hairSpecMask, eyeMatcap, clothEmission, rampAtlas, wireframe, toon, faceSdfEnabled, faceRefineStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
+  }, [scene, faceSdf, faceRefineMap, hairParams, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, wireframe, toon, faceSdfEnabled, faceRefineStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
 
   const meshRows = useMemo(() => {
     const groups = new Map()
@@ -299,7 +304,7 @@ export default function App() {
     ['虹膜底色', 'T_actor_zhuangfy_iris_01_D.png'],
     ['眼部高光底色', 'T_actor_laevat_face_01_D.png'],
     ['头发参数 P', 'T_actor_zhuangfy_hair_01_P.png'],
-    ['头发高光遮罩 ST', 'T_actor_laevat_hair_01_ST.png'],
+    ['头发源 ST（细节法线）', 'T_actor_laevat_hair_01_ST.png'],
     ['服装参数 P（01）', 'T_actor_zhuangfy_cloth_01_P.png'],
     ['候选服装参数 P（02，未分配）', 'T_actor_zhuangfy_cloth_02_P.png'],
     ['服装自发光 E', 'T_actor_zhuangfy_cloth_01_E.png'],
@@ -395,7 +400,7 @@ export default function App() {
             <label className="setting-row"><span><Grid2X2 size={15} />线框模式</span><button className={`switch ${wireframe ? 'on' : ''}`} role="switch" aria-checked={wireframe} onClick={() => setWireframe((v) => !v)}><i /></button></label>
             <label className="setting-row"><span><Scan size={15} />Ramp 分层光照</span><button className={`switch ${toon ? 'on' : ''}`} role="switch" aria-checked={toon} onClick={() => setToon((v) => !v)}><i /></button></label>
             <label className="setting-row"><span><Scan size={15} />面部 SDF 阴影</span><button className={`switch ${faceSdfEnabled ? 'on' : ''}`} role="switch" aria-checked={faceSdfEnabled} onClick={() => setFaceSdfEnabled((v) => !v)}><i /></button></label>
-            <label className="setting-range"><span>脸部 refine / trick</span><input aria-label="脸部 refine 与 trick 强度" type="range" min="0" max="100" value={faceRefineStrength} onChange={(e) => setFaceRefineStrength(Number(e.target.value))} /><output>{faceRefineStrength}%</output></label>
+            <label className="setting-range"><span title="代理图按当前 Face 网格 UV 覆盖范围与边界生成；未伪造缺失的 TrickTex">脸部 refine 代理</span><input aria-label="脸部 refine 代理强度" type="range" min="0" max="100" value={faceRefineStrength} onChange={(e) => setFaceRefineStrength(Number(e.target.value))} /><output>{faceRefineStrength}%</output></label>
             <label className="setting-row"><span><Scan size={15} />头发各向异性高光</span><button className={`switch ${hairSpecular ? 'on' : ''}`} role="switch" aria-checked={hairSpecular} onClick={() => setHairSpecular((v) => !v)}><i /></button></label>
             <label className="setting-row"><span><Scan size={15} />Bloom 后处理</span><button className={`switch ${bloom ? 'on' : ''}`} role="switch" aria-checked={bloom} onClick={() => setBloom((v) => !v)}><i /></button></label>
             <label className="setting-range"><span>日光直射</span><input aria-label="日光直射强度" type="range" min="0" max="100" value={dayStrength} onChange={(e) => setDayStrength(Number(e.target.value))} /><output>{dayStrength}%</output></label>
