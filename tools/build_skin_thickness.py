@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA = ROOT.parent / "庄方宜" / "render_export" / "_work" / "body_skin_thickness_triangles.json"
-OUTPUT = ROOT / "tools" / "body_skin_thickness_candidate.png"
+OUTPUT = ROOT / "public" / "textures" / "T_actor_zhuangfy_body_01_Thickness_Proxy.png"
 PREVIEW = ROOT / "tools" / "skin_thickness_preview.png"
 
 
@@ -51,7 +51,9 @@ def rasterize_triangles(triangles: list[list[list[float]]], size: int) -> tuple[
     for i, n in enumerate(count):
         if n:
             pixels[i] = round(max(0.0, min(1.0, sums[i] / n)) * 255)
-    depth = Image.frombytes("L", (size, size), bytes(pixels)).filter(ImageFilter.GaussianBlur(0.45))
+    # This is a low-confidence geometry estimate (most vertices use fallback
+    # thickness), so soften sparse ray hits before using them as a shader weight.
+    depth = Image.frombytes("L", (size, size), bytes(pixels)).filter(ImageFilter.GaussianBlur(2.0))
     coverage = coverage.filter(ImageFilter.GaussianBlur(0.55))
     return depth, coverage
 
@@ -72,7 +74,7 @@ def main() -> None:
     preview.paste(depth.convert("RGB"), (0, 36), coverage)
     ImageDraw.Draw(preview).text(
         (8, 10),
-        f"Body thickness candidate  ·  ray hit {data['ray_hit_ratio']:.1%}  ·  max {data['max_thickness']:.3f} source units",
+        f"Body thickness proxy  ·  ray hit {data['ray_hit_ratio']:.1%}  ·  max {data['max_thickness']:.3f} source units",
         fill=(230, 232, 238),
     )
     preview.save(PREVIEW)

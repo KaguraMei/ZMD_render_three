@@ -19,6 +19,7 @@ export function configureCharacterMaterial(material, {
   clothParams,
   eyeMatcap,
   skinLut,
+  skinThicknessMap,
   rampAtlas,
   isFace,
   isHair,
@@ -94,6 +95,13 @@ export function configureCharacterMaterial(material, {
       shader.uniforms.zfScatterStrength = { value: scatterStrength }
       shader.uniforms.zfSkinLut = { value: skinLut }
       declarations.push('uniform float zfScatterStrength;', 'uniform sampler2D zfSkinLut;')
+      const thicknessProxy = isSkin && skinThicknessMap
+        ? 'float zfSkinThicknessSignal = smoothstep(0.14, 0.58, texture2D(zfSkinThicknessMap, vMapUv).r);'
+        : 'float zfSkinThicknessSignal = 0.0;'
+      if (isSkin && skinThicknessMap) {
+        shader.uniforms.zfSkinThicknessMap = { value: skinThicknessMap }
+        declarations.push('uniform sampler2D zfSkinThicknessMap;')
+      }
       const faceScatterMask = isFace && faceSdfEnabled && faceRefineMap
         ? 'float zfSkinFaceMask = texture2D(zfFaceRefineMap, vMapUv).r;'
         : 'float zfSkinFaceMask = 1.0;'
@@ -103,12 +111,17 @@ export function configureCharacterMaterial(material, {
         float zfSkinLum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
         vec3 zfSkinLutColor = texture2D(zfSkinLut, vec2(zfSkinLum, 0.5)).rgb;
         float zfSkinRim = pow(1.0 - max(dot(zfSkinN, zfSkinV), 0.0), 2.0);
+        ${thicknessProxy}
         float zfSkinBack = 0.0;
+        float zfSkinWrap = 0.0;
         #if NUM_DIR_LIGHTS > 0
-          zfSkinBack = pow(max(dot(-zfSkinN, normalize(directionalLights[0].direction)) + 0.18, 0.0), 1.7);
+          float zfSkinNoL = dot(zfSkinN, normalize(directionalLights[0].direction));
+          zfSkinBack = pow(max(-zfSkinNoL + 0.08, 0.0), 2.0);
+          zfSkinWrap = pow(clamp((zfSkinNoL + 0.38) / 1.38, 0.0, 1.0), 2.0);
         #endif
         ${faceScatterMask}
-        float zfSkinScatter = (zfSkinRim * 0.32 + zfSkinBack * 0.68) * zfScatterStrength * zfSkinFaceMask;
+        float zfSkinBackWeight = mix(0.6, 1.25, zfSkinThicknessSignal);
+        float zfSkinScatter = (zfSkinRim * 0.28 + zfSkinBack * 0.62 * zfSkinBackWeight + zfSkinWrap * 0.08) * zfScatterStrength * zfSkinFaceMask;
         reflectedLight.indirectDiffuse += mix(diffuseColor.rgb, zfSkinLutColor, 0.38) * vec3(1.0, 0.5, 0.42) * zfSkinScatter * 0.42;`)
     }
 
@@ -249,9 +262,9 @@ export function configureCharacterMaterial(material, {
   }
 
   material.customProgramCacheKey = () => [
-    'zf-character-v5', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0, isFace && faceTrickMap ? 1 : 0,
+    'zf-character-v6', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0, isFace && faceTrickMap ? 1 : 0,
     isHair && hairSpecular ? 1 : 0, isSkin && scatterStrength > 0 ? 1 : 0,
-    clothParams ? 1 : 0, isIris ? 1 : 0, rampRow,
+    isSkin && skinThicknessMap ? 1 : 0, clothParams ? 1 : 0, isIris ? 1 : 0, rampRow,
   ].join('-')
   material.needsUpdate = true
   return material

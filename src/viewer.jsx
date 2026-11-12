@@ -20,6 +20,7 @@ const auxiliaryTexturePaths = [
   '/textures/T_actor_zhuangfy_cloth_01_E.png',
   '/textures/toon_character_ramp.png',
   '/textures/toon_skin_lut.png',
+  '/textures/T_actor_zhuangfy_body_01_Thickness_Proxy.png',
 ]
 const labels = {
   Armor: '装甲', Clothing: '服装', Eye_HL: '眼部高光', Face: '面部', Gloves: '手套',
@@ -147,11 +148,11 @@ function createCorneaShellGeometries(mesh, materialIndex) {
 
 function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
-  const [faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut] = useLoader(TextureLoader, auxiliaryTexturePaths)
+  const [faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, skinThicknessMap] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
     const clone = scene.clone(true)
     const corneaSources = []
-    ;[faceSdf, faceRefineMap, hairParams, hairSpecMaskMap, cloth01Params].forEach((texture) => {
+    ;[faceSdf, faceRefineMap, hairParams, hairSpecMaskMap, cloth01Params, skinThicknessMap].forEach((texture) => {
       texture.flipY = false
       texture.colorSpace = THREE.NoColorSpace
       texture.needsUpdate = true
@@ -205,6 +206,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
         if (isSkin) {
           material.color.set('#ffffff')
           material.roughness = 0.76
+          material.userData.skinThicknessMap = skinThicknessMap
         }
         if (irisMaterial) {
           material.dispose()
@@ -216,7 +218,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           })
           return configureCharacterMaterial(iris, {
             toon, faceSdfEnabled, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, faceTrickStrength, hairParams, hairSpecMaskMap,
-            eyeMatcap, skinLut, rampAtlas, outlinePixels, dayStrength, fillStrength, rimStrength,
+            eyeMatcap, skinLut, skinThicknessMap, rampAtlas, outlinePixels, dayStrength, fillStrength, rimStrength,
             scatterStrength, isIris: true,
           })
         } else if (eyeWhite || eyeHighlight) {
@@ -239,7 +241,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
         }
         return configureCharacterMaterial(material, {
           toon: toon && !isOutline, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap,
-          eyeMatcap, skinLut, rampAtlas, outlinePixels,
+          eyeMatcap, skinLut, skinThicknessMap, rampAtlas, outlinePixels,
           clothParams,
           dayStrength, fillStrength, rimStrength, scatterStrength,
           isFace, isHair, isSkin, isOutline,
@@ -277,7 +279,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
       }
     }
     return clone
-  }, [scene, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
+  }, [scene, faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, skinThicknessMap, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, hairSpecular, dayStrength, fillStrength, rimStrength, scatterStrength])
 
   useEffect(() => {
     model.traverse((object) => {
@@ -450,6 +452,7 @@ export default function App() {
   const onSelect = useMemo(() => (item) => setSelected(item), [])
   const maps = [
     ['身体底色（烘焙）', 'body_skin_albedo.png'],
+    ['皮肤厚度候选代理（命中率 13.6%）', 'T_actor_zhuangfy_body_01_Thickness_Proxy.png'],
     ['服装底色', 'T_actor_zhuangfy_cloth_01_D.png'],
     ['服装法线', 'T_actor_zhuangfy_cloth_01_N.png'],
     ['脸部底色', 'T_actor_zhuangfy_face_01_D.png'],
@@ -563,7 +566,7 @@ export default function App() {
             <label className="setting-row"><span><Scan size={15} />Bloom 后处理</span><button className={`switch ${bloom ? 'on' : ''}`} role="switch" aria-checked={bloom} onClick={() => setBloom((v) => !v)}><i /></button></label>
             <label className="setting-range"><span>日光直射</span><input aria-label="日光直射强度" type="range" min="0" max="100" value={dayStrength} onChange={(e) => setDayStrength(Number(e.target.value))} /><output>{dayStrength}%</output></label>
             <label className="setting-range"><span>顶光补色</span><input aria-label="顶光补色强度" type="range" min="0" max="100" value={fillStrength} onChange={(e) => setFillStrength(Number(e.target.value))} /><output>{fillStrength}%</output></label>
-            <label className="setting-range"><span>皮肤散射</span><input aria-label="皮肤散射强度" type="range" min="0" max="100" value={scatterStrength} onChange={(e) => setScatterStrength(Number(e.target.value))} /><output>{scatterStrength}%</output></label>
+            <label className="setting-range"><span title="背光散射由几何射线厚度候选图作弱调制；射线仅命中 13.6%，不等同于完整 SSS 厚度">皮肤散射（厚度代理）</span><input aria-label="皮肤散射强度" type="range" min="0" max="100" value={scatterStrength} onChange={(e) => setScatterStrength(Number(e.target.value))} /><output>{scatterStrength}%</output></label>
             <label className="setting-range"><span>边缘光</span><input aria-label="边缘光强度" type="range" min="0" max="100" value={rimStrength} onChange={(e) => setRimStrength(Number(e.target.value))} /><output>{rimStrength}%</output></label>
             <label className="setting-range"><span>环境反射</span><input aria-label="环境反射强度" type="range" min="0" max="100" value={iblStrength} onChange={(e) => setIblStrength(Number(e.target.value))} /><output>{iblStrength}%</output></label>
             <label className="setting-range"><span>描边宽度</span><input aria-label="描边宽度" type="range" min="0" max="5" step="0.1" value={outlinePixels} onChange={(e) => setOutlinePixels(Number(e.target.value))} /><output>{outlinePixels.toFixed(1)} px</output></label>
