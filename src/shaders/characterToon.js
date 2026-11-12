@@ -192,7 +192,7 @@ export function configureCharacterMaterial(material, {
       declarations.push('uniform sampler2D zfEyeMatcap;', 'uniform vec3 zfEyeMatcapTint;')
       effects.push(`
         vec3 zfEyeN = normalize(normal);
-        vec3 zfEyeV = normalize(-vViewPosition);
+        vec3 zfEyeV = normalize(vViewPosition);
         vec3 zfEyeR = reflect(-zfEyeV, zfEyeN);
         vec2 zfEyeMatcapUv = clamp(zfEyeR.xy * 0.5 + 0.5, vec2(0.001), vec2(0.999));
         vec3 zfEyeMatcapColor = texture2D(zfEyeMatcap, zfEyeMatcapUv).rgb;

@@ -36,6 +36,7 @@
 ### 皮肤与眼睛
 
 - 源工程身体对象有多个 UV 与顶点色属性，但没有找到专用皮肤 LUT 或厚度贴图。BodySkin_Albedo 原始文件仍缺失；现有 viewer 身体色图是先前生成的烘焙结果。
+- 为验证能否从几何补厚度图，使用 Blender 5.3 后台只读加载 no_futa 源文件，按 `ZhuangFangyi_Body` 的 UV0 面片从顶点法线向内射线采样。参与皮肤材质的 4,411 个顶点中，仅 602 个命中对侧表面（13.6%）。开放表面上的默认厚度只是占位值；因此生成图留作候选，不接入散射 shader。相关脚本为 `tools/export_body_thickness.py` 与 `tools/build_skin_thickness.py`，中间 JSON 存在 render_export/_work。
 - 眼部由 Face 网格中的 `EyeWHite` 区域及独立 `Eye_HL` 网格组成；`Eye_HL` 有独立虹膜材质和高光几何。没有找到独立角膜对象。工程内有打包的 `Copper_Matcap` 和 `matcap_trans` 图像，但它们没有接入眼部材质，不能直接认定为眼部专用 MatCap。
 
 ## 对图片生成的判断

@@ -25,7 +25,7 @@
 | IBL | Three.js `RoomEnvironment` 经 `PMREMGenerator` 生成程序化环境反射，可调强度 | 当前没有匹配角色的 HDR 环境贴图 |
 | 衣物参数 | 读取 P 图：R 金属度、G 反射率、B AO、A 光滑度；附加高光与弱 AO | 通道含义按 MyZmd shader 读取方式实现。当前模型只有 `cloth_01` 的面片分配。导出报告列出了 `cloth_02` 材质槽，但检查 GLB 与 FBX 的面片材质索引后确认所有相关网格均为材质索引 0，没有面片使用 `cloth_02`。候选 P02 仍显示在贴图列表，但不会加载进着色器 |
 | 面部阴影 | 基础 SDF RG 计算朝向阴影；另采样按 Face 网格 UV 覆盖范围生成的 refine 代理图 | 代理图 R=网格覆盖 SSS 权重、G=中性值、B=阴影区域、A=UV 边缘轮廓。shader 不再把基础 SDF 的 B/A 当 refine/trick。它是几何派生的代理；原作 `SdfRefineTex` 和 `TrickTex` 仍缺失 |
-| 皮肤 | 静态手工皮肤 LUT；按视角边缘和主光背光方向叠加轻量散射，Face SSS 按 refine 代理 R 通道调制 | LUT 色阶可在 `tools/skin_lut_palette.json` 修改。这是廉价 NPR 近似，不是厚度图/屏幕空间的完整 SSS |
+| 皮肤 | 静态手工皮肤 LUT；按视角边缘和主光背光方向叠加轻量散射，Face SSS 按 refine 代理 R 通道调制 | LUT 色阶可在 `tools/skin_lut_palette.json` 修改。尝试从 Body 网格烘焙厚度代理，但仅 13.6% 顶点能沿法线找到对侧表面，候选图未接入实时 shader，避免把稀疏命中显示成斑驳散射 |
 | 头发高光 | 优先使用 GLB 的 TANGENT 属性，用 P.R 混合切线方向、P.G 控制反射率、P.A 控制光滑度，并叠加两层各向异性高光 | 已生成并启用 `ZhuangFangyi_render_tangent.glb`；ST 在 Blender 源材质中接入 Bump.Normal，Three 不再把 ST.R 错当高光遮罩。当前未找到独立 SpecularMask，强度使用保守固定值 |
 | 眼睛 | 虹膜使用视空间反射向量采样铜色 MatCap，并叠加 Fresnel 与 MeshPhysicalMaterial 清漆；眼白写入 stencil，眼部高光层按 stencil 测试 | MatCap 坐标已按视空间反射修正；没有独立角膜网格/深度，未实现视差折射 |
 | 描边 | Three.js `OutlinePass` 对角色整体做屏幕空间描边，像素宽度可调 | 隐藏了 GLB 的 `ZF_Outline_07` 壳网格，因为其与脸部重叠会产生脏点；后处理描边不依赖网格顶点外扩，当前也没有顶点宽度遮罩 |
@@ -42,7 +42,7 @@ MyZmd 的 `ZmdToonMain` / `ZmdHairToonMain` 路径把 P/ORM 类贴图作为材�
 1. 已完成：加入衣物、皮肤/脸、头发和预留行的手工 RGBA Ramp；色阶配置可在 `tools/character_ramp_palette.json` 调整。
 2. 已确认源 Blender 中 ST/HN 与 Hair UVMap 配套，并已将 TANGENT 导出到当前 GLB。仍缺独立 SpecularMask；当前高光不再采样 ST.R，后续可按 UV 手绘专用遮罩。
 3. 已完成：face UV 派生 refine 代理图，并按源码 RGBA 语义接入；基础 SDF B/A 不再被误当作 refine/trick。R/B/A 是几何派生权重，G 保持中性；原始 `SdfRefineTex` 和 `TrickTex` 均缺失。
-4. 已完成：皮肤 LUT 改为手工色阶配置和静态 PNG。要达到可信完整 SSS，仍需美术提供透射/厚度信息。
+4. 已完成：皮肤 LUT 改为手工色阶配置和静态 PNG。已尝试 Blender 法线射线厚度烘焙，但 Body 是开放/不完整表面，射线命中率仅 13.6%；候选图保存在 `tools/body_skin_thickness_candidate.png`，不参与实时渲染。要做可信完整 SSS，仍需闭合皮肤几何或人工厚度贴图及透射参数。
 5. 已完成可由现有模型支持的部分：修正 MatCap 视空间反射采样并保留 stencil 高光层/清漆。完整角膜效果仍需要独立几何、眼球深度或视差参数。
 6. 若 `cloth_02` 需要参与渲染，需人工确认哪些面片应使用它再分配导出；扫描两份 Blender 源文件后确认 Clothing 的 cloth_02 面片数为 0，LowerArmour/Tail 也全分配给 cloth_01。
 
