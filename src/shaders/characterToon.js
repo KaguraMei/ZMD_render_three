@@ -12,6 +12,8 @@ export function configureCharacterMaterial(material, {
   scatterStrength,
   faceSdf,
   faceRefineMap,
+  faceTrickMap,
+  faceTrickStrength = 0.38,
   hairParams,
   clothParams,
   eyeMatcap,
@@ -24,7 +26,7 @@ export function configureCharacterMaterial(material, {
   isOutline,
 }) {
   const usesShader = material.isMeshStandardMaterial && (
-    toon || (isFace && faceSdfEnabled) || (isHair && hairSpecular) || ((isSkin || isFace) && scatterStrength > 0) || isIris || isOutline
+    toon || (isFace && (faceSdfEnabled || (faceTrickMap && faceTrickStrength > 0))) || (isHair && hairSpecular) || ((isSkin || isFace) && scatterStrength > 0) || isIris || isOutline
   )
   if (!usesShader) {
     material.needsUpdate = true
@@ -151,6 +153,18 @@ export function configureCharacterMaterial(material, {
         reflectedLight.directDiffuse += diffuseColor.rgb * vec3(0.68, 0.82, 1.0) * zfFaceProxyRim * 0.16;`)
     }
 
+    if (isFace && faceTrickMap) {
+      shader.uniforms.zfFaceTrickMap = { value: faceTrickMap }
+      shader.uniforms.zfFaceTrickStrength = { value: faceTrickStrength }
+      declarations.push('uniform sampler2D zfFaceTrickMap;', 'uniform float zfFaceTrickStrength;')
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+          vec4 zfFaceTrickSample = texture2D(zfFaceTrickMap, vMapUv);
+          diffuseColor.rgb = mix(diffuseColor.rgb, zfFaceTrickSample.rgb, zfFaceTrickSample.a * zfFaceTrickStrength);`,
+      )
+    }
+
     if (isHair && hairSpecular && hairParams) {
       shader.uniforms.zfHairTint = { value: new THREE.Color('#c5edf0') }
       shader.uniforms.zfHairParams = { value: hairParams }
@@ -232,7 +246,7 @@ export function configureCharacterMaterial(material, {
   }
 
   material.customProgramCacheKey = () => [
-    'zf-character-v4', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0,
+    'zf-character-v5', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0, isFace && faceTrickMap ? 1 : 0,
     isHair && hairSpecular ? 1 : 0, isSkin && scatterStrength > 0 ? 1 : 0,
     clothParams ? 1 : 0, isIris ? 1 : 0, rampRow,
   ].join('-')

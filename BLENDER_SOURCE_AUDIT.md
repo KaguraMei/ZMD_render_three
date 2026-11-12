@@ -26,6 +26,7 @@
 - refine 通道语义可由本地 `MyZmdShaders/Assets/MyZmd/ZmdFaceToonMain.hlsl` 确认：R 控制 SSS 权重；G 控制法线/阴影细化权重；B 调制阴影覆盖区域；A 提供边缘光区域遮罩。对应采样和使用位置在该文件第 55、106、113、177、196、321 行附近。
 - 不要把基础 SDF 的 A 通道当作 refine A：当前脸部 shader 只用基础 SDF 的 R/G 平均值及 B 通道生成脸部方向阴影；refine A 是另一张贴图的边缘光遮罩。
 - 当前查看器新增 `T_actor_zhuangfy_face_01_Refine_Proxy.png`：R/B 由 Face UV 面片覆盖区生成，G 保持中性，A 从 UV 岛边界生成。它按源码通道语义工作，但不是原作手绘 refine 图；原始 `TrickTex` 仍缺失。可运行 `tools/build_face_refine_proxy.py` 重建。
+- 查看 Face 贴图的五官 UV 位置后，另外手工绘制淡腮红/鼻尖颜色叠层 `T_actor_zhuangfy_face_01_Trick_Proxy.png`，以 Face UV 覆盖裁切并接入查看器强度滑杆。它替代了基础静态颜色 Trick 用途；原作表情图集、`emojiUV` 动画和美术 TrickTex 并未恢复。
 
 ### 布料 cloth_02 分配
 
