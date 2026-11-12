@@ -27,9 +27,10 @@ export function configureCharacterMaterial(material, {
   isSkin,
   isIris,
   isOutline,
+  windProfile,
 }) {
   const usesShader = material.isMeshStandardMaterial && (
-    toon || (isFace && (faceSdfEnabled || (faceTrickMap && faceTrickStrength > 0))) || (isHair && hairSpecular) || ((isSkin || isFace) && scatterStrength > 0) || isIris || isOutline
+    toon || (isFace && (faceSdfEnabled || (faceTrickMap && faceTrickStrength > 0))) || (isHair && hairSpecular) || ((isSkin || isFace) && scatterStrength > 0) || isIris || isOutline || windProfile
   )
   if (!usesShader) {
     material.needsUpdate = true
@@ -43,6 +44,45 @@ export function configureCharacterMaterial(material, {
       ? ['uniform mat4 modelMatrix;']
       : []
     const effects = []
+
+    if (windProfile) {
+      shader.uniforms.zfWindTime = { value: 0 }
+      shader.uniforms.zfWindStrength = { value: 0 }
+      shader.uniforms.zfWindSpeed = { value: 0.42 }
+      shader.uniforms.zfWindDirection = { value: new THREE.Vector2(1, 0) }
+      shader.uniforms.zfWindAnchorY = { value: windProfile.anchorY }
+      shader.uniforms.zfWindHeight = { value: windProfile.height }
+      shader.uniforms.zfWindPhase = { value: windProfile.phase }
+      shader.uniforms.zfWindAmplitude = { value: windProfile.amplitude }
+      material.userData.zfWindShader = shader
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+          uniform float zfWindTime;
+          uniform float zfWindStrength;
+          uniform float zfWindSpeed;
+          uniform vec2 zfWindDirection;
+          uniform float zfWindAnchorY;
+          uniform float zfWindHeight;
+          uniform float zfWindPhase;
+          uniform float zfWindAmplitude;`,
+      )
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+          float zfWindProgress = clamp((zfWindAnchorY - position.y) / max(zfWindHeight, 0.001), 0.0, 1.0);
+          float zfWindWeight = smoothstep(0.08, 0.92, zfWindProgress);
+          vec2 zfWindDir = normalize(zfWindDirection);
+          vec2 zfWindSide = vec2(-zfWindDir.y, zfWindDir.x);
+          float zfWindPhaseValue = zfWindTime * mix(0.45, 2.0, zfWindSpeed)
+            + dot(position.xz, zfWindDir) * 2.8 + position.y * 3.4 + zfWindPhase;
+          float zfWindSway = sin(zfWindPhaseValue) * 0.72 + sin(zfWindPhaseValue * 1.87 + position.x * 3.1) * 0.28;
+          float zfWindFlutter = sin(zfWindPhaseValue * 2.35 + position.y * 5.0);
+          float zfWindBend = zfWindSway * zfWindStrength * zfWindAmplitude * zfWindWeight * zfWindWeight;
+          transformed.xz += zfWindDir * zfWindBend + zfWindSide * zfWindFlutter * zfWindBend * 0.12;
+          transformed.y += cos(zfWindPhaseValue) * zfWindBend * 0.035;`,
+      )
+    }
 
     if (toon) {
       shader.uniforms.zfToonRamp = { value: ramp }
@@ -269,6 +309,7 @@ export function configureCharacterMaterial(material, {
     'zf-character-v7', toon ? 1 : 0, isFace && faceSdfEnabled ? 1 : 0, isFace && faceTrickMap ? 1 : 0,
     isHair && hairSpecular ? 1 : 0, isSkin && scatterStrength > 0 ? 1 : 0,
     isSkin && skinThicknessMap ? 1 : 0, clothParams ? 1 : 0, isIris ? 1 : 0, rampRow,
+    windProfile ? 1 : 0,
   ].join('-')
   material.needsUpdate = true
   return material

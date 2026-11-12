@@ -4,7 +4,6 @@ import { Bounds, Center, OrbitControls, useGLTF } from '@react-three/drei'
 import { Box, CircleHelp, ChevronDown, Eye, EyeOff, Focus, Gauge, Grid2X2, Layers3, Lightbulb, LoaderCircle, Maximize2, RotateCcw, Scan, Sun, X } from 'lucide-react'
 import * as THREE from 'three'
 import { TextureLoader } from 'three'
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { configureCharacterMaterial } from './shaders/characterToon.js'
 import { createCharacterComposer } from './shaders/endfieldPost.js'
 
@@ -26,6 +25,45 @@ const labels = {
   Armor: '装甲', Clothing: '服装', Eye_HL: '眼部高光', Face: '面部', Gloves: '手套',
   Hair: '头发', HeadAcc: '头部配饰', Horn: '角饰', LowerArmour: '下装护甲',
   Shoes: '鞋靴', Tail: '尾饰', TopClothing: '上装', ZhuangFangyi_Body: '身体',
+}
+
+const environmentPresets = {
+  studio: { label: '摄影棚', sky: '#737c8a', horizon: '#b1a99d', ground: '#37333a', lights: ['#fff3dc', '#d9e6ff'] },
+  warm: { label: '暖色室内', sky: '#74544a', horizon: '#d69d70', ground: '#3d2929', lights: ['#ffd2a0', '#fff0d2'] },
+  cool: { label: '冷色展厅', sky: '#3b596e', horizon: '#91bdc9', ground: '#242f43', lights: ['#d5f4ff', '#9ec7ff'] },
+  sunset: { label: '黄昏', sky: '#443c62', horizon: '#e38c72', ground: '#342b46', lights: ['#ffd0a2', '#f5a9bd'] },
+}
+
+function createProceduralEnvironment(presetName) {
+  const preset = environmentPresets[presetName] || environmentPresets.studio
+  const canvas = document.createElement('canvas')
+  canvas.width = 1024
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height)
+  gradient.addColorStop(0, preset.sky)
+  gradient.addColorStop(0.47, preset.horizon)
+  gradient.addColorStop(0.53, preset.horizon)
+  gradient.addColorStop(1, preset.ground)
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  preset.lights.forEach((color, index) => {
+    const x = canvas.width * (0.29 + index * 0.42)
+    const y = canvas.height * (0.22 + index * 0.09)
+    const glow = ctx.createRadialGradient(x, y, 5, x, y, 170)
+    glow.addColorStop(0, `${color}d9`)
+    glow.addColorStop(0.22, `${color}72`)
+    glow.addColorStop(1, `${color}00`)
+    ctx.fillStyle = glow
+    ctx.fillRect(x - 180, y - 180, 360, 360)
+    ctx.fillStyle = `${color}aa`
+    ctx.fillRect(x - 70, y - 20, 140, 38)
+  })
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.mapping = THREE.EquirectangularReflectionMapping
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+  return texture
 }
 
 function findPartName(object, root) {
@@ -146,8 +184,9 @@ function createCorneaShellGeometries(mesh, materialIndex) {
   return result
 }
 
-function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, onReady, onSelect }) {
+function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, castShadows, windEnabled, windStrength, windSpeed, windDirection, onReady, onSelect }) {
   const { scene } = useGLTF(MODEL_URL)
+  const windDirectionVector = useRef(new THREE.Vector2())
   const [faceSdf, faceRefineMap, faceTrickMap, hairParams, hairSpecMaskMap, cloth01Params, eyeMatcap, clothEmission, rampAtlas, skinLut, skinThicknessMap] = useLoader(TextureLoader, auxiliaryTexturePaths)
   const model = useMemo(() => {
     const clone = scene.clone(true)
@@ -170,6 +209,17 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
         corneaSources.push({ object, irisMaterialIndex })
       }
       const partName = findPartName(object, clone)
+      let windProfile = null
+      if (['Hair', 'Clothing', 'Tail'].includes(partName)) {
+        object.geometry.computeBoundingBox()
+        const bounds = object.geometry.boundingBox
+        windProfile = {
+          anchorY: bounds.max.y,
+          height: Math.max(bounds.max.y - bounds.min.y, 0.01),
+          phase: partName === 'Hair' ? 0.7 : partName === 'Tail' ? 2.1 : 1.4,
+          amplitude: partName === 'Hair' ? 0.58 : partName === 'Tail' ? 1.35 : 1.0,
+        }
+      }
       const repaired = original.map((source) => {
         const material = source.clone()
         material.wireframe = wireframe
@@ -249,7 +299,7 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
           eyeMatcap, skinLut, skinThicknessMap, rampAtlas, outlinePixels,
           clothParams,
           dayStrength, fillStrength, rimStrength, scatterStrength,
-          isFace, isHair, isSkin, isOutline,
+          isFace, isHair, isSkin, isOutline, windProfile,
         })
       })
       object.material = Array.isArray(object.material) ? repaired : repaired[0]
@@ -305,6 +355,22 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
     })
   }, [model, hairSpecularStrength])
 
+  useFrame(({ clock }) => {
+    const radians = THREE.MathUtils.degToRad(windDirection)
+    const direction = windDirectionVector.current.set(Math.sin(radians), Math.cos(radians)).normalize()
+    model.traverse((object) => {
+      if (!object.isMesh) return
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        const shader = material?.userData?.zfWindShader
+        if (!shader) continue
+        shader.uniforms.zfWindTime.value = clock.elapsedTime
+        shader.uniforms.zfWindStrength.value = windEnabled ? windStrength / 100 * 0.11 : 0
+        shader.uniforms.zfWindSpeed.value = windSpeed / 100
+        shader.uniforms.zfWindDirection.value.copy(direction)
+      }
+    })
+  })
+
   useEffect(() => () => {
     model.traverse((object) => {
       if (!object.userData.viewerGeneratedCornea) return
@@ -355,11 +421,18 @@ function Model({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength
   )
 }
 
-function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, bloom, shadows, showGrid, lightLevel, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
+function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefineStrength, faceTrickStrength, corneaStrength, hairSpecular, hairSpecularStrength, dayStrength, fillStrength, rimStrength, scatterStrength, outlinePixels, iblStrength, environmentPreset, bloom, shadows, showGrid, lightLevel, mainLightAzimuth, mainLightElevation, windEnabled, windStrength, windSpeed, windDirection, modelRoot, onReady, onSelect, orbitRef, stageTint }) {
   const lightRef = useRef()
   const composerRef = useRef(null)
   const { gl, scene, camera, size } = useThree()
   const lightScale = lightLevel / 72
+  const lightAzimuth = THREE.MathUtils.degToRad(mainLightAzimuth)
+  const lightElevation = THREE.MathUtils.degToRad(mainLightElevation)
+  const mainLightPosition = [
+    10 * Math.cos(lightElevation) * Math.sin(lightAzimuth),
+    10 * Math.sin(lightElevation),
+    10 * Math.cos(lightElevation) * Math.cos(lightAzimuth),
+  ]
   useEffect(() => {
     const composer = createCharacterComposer(gl, scene, camera, size, bloom, modelRoot)
     composerRef.current = composer
@@ -376,17 +449,17 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
   }, [outlinePixels, modelRoot])
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl)
-    const room = new RoomEnvironment()
-    const environmentTarget = pmrem.fromScene(room, 0.04)
+    const source = createProceduralEnvironment(environmentPreset)
+    const environmentTarget = pmrem.fromEquirectangular(source)
     scene.environment = environmentTarget.texture
     scene.environmentIntensity = iblStrength / 100
     return () => {
       if (scene.environment === environmentTarget.texture) scene.environment = null
       environmentTarget.dispose()
+      source.dispose()
       pmrem.dispose()
-      room.dispose()
     }
-  }, [gl, scene])
+  }, [gl, scene, environmentPreset])
   useEffect(() => { scene.environmentIntensity = iblStrength / 100 }, [scene, iblStrength])
   useEffect(() => {
     composerRef.current?.setSize(size.width, size.height)
@@ -398,7 +471,7 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
       <fog attach="fog" args={[stageTint, 13, 27]} />
       <ambientLight intensity={0.38 * lightScale} />
       <hemisphereLight args={['#f5f3ef', '#77716b', 0.28 * lightScale]} />
-      <directionalLight ref={lightRef} position={[4.8, 7.2, 4]} intensity={2.2 * lightScale} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-near={0.5} shadow-camera-far={25} shadow-camera-left={-7} shadow-camera-right={7} shadow-camera-top={8} shadow-camera-bottom={-4} shadow-bias={-0.0001} shadow-normalBias={0.035} />
+      <directionalLight ref={lightRef} position={mainLightPosition} intensity={2.2 * lightScale} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-near={0.5} shadow-camera-far={25} shadow-camera-left={-7} shadow-camera-right={7} shadow-camera-top={8} shadow-camera-bottom={-4} shadow-bias={-0.0001} shadow-normalBias={0.035} />
       <directionalLight position={[-4, 3, -3]} intensity={0.24 * lightScale} color="#e6e8ed" />
       <spotLight position={[-2, 5, 5]} angle={0.65} penumbra={0.9} intensity={1.1 * lightScale} color="#fff3e8" castShadow={shadows} shadow-mapSize={[1024, 1024]} shadow-bias={-0.00015} shadow-normalBias={0.03} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.09, 0]} receiveShadow>
@@ -409,7 +482,7 @@ function StageContents({ showMeshes, wireframe, toon, faceSdfEnabled, faceRefine
       <Suspense fallback={null}>
         <Bounds fit clip observe margin={0.95}>
           <Center top>
-          <Model showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength} faceTrickStrength={faceTrickStrength} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength} dayStrength={dayStrength / 100} fillStrength={fillStrength / 100} rimStrength={rimStrength / 100} scatterStrength={scatterStrength / 100} outlinePixels={outlinePixels} castShadows={shadows} onReady={onReady} onSelect={onSelect} />
+          <Model showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength} faceTrickStrength={faceTrickStrength} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength} dayStrength={dayStrength / 100} fillStrength={fillStrength / 100} rimStrength={rimStrength / 100} scatterStrength={scatterStrength / 100} outlinePixels={outlinePixels} castShadows={shadows} windEnabled={windEnabled} windStrength={windStrength} windSpeed={windSpeed} windDirection={windDirection} onReady={onReady} onSelect={onSelect} />
           </Center>
         </Bounds>
       </Suspense>
@@ -450,6 +523,13 @@ export default function App() {
   const [scatterStrength, setScatterStrength] = useState(18)
   const [outlinePixels, setOutlinePixels] = useState(1.8)
   const [iblStrength, setIblStrength] = useState(42)
+  const [environmentPreset, setEnvironmentPreset] = useState('studio')
+  const [mainLightAzimuth, setMainLightAzimuth] = useState(50)
+  const [mainLightElevation, setMainLightElevation] = useState(50)
+  const [windEnabled, setWindEnabled] = useState(true)
+  const [windStrength, setWindStrength] = useState(38)
+  const [windSpeed, setWindSpeed] = useState(42)
+  const [windDirection, setWindDirection] = useState(35)
   const [bloom, setBloom] = useState(true)
   const [shadows, setShadows] = useState(true)
   const [showGrid, setShowGrid] = useState(false)
@@ -548,7 +628,7 @@ export default function App() {
           </div>
 
           <div className="stage-wrap">
-          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength / 100} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
+          <div className="stage-canvas"><Stage showMeshes={showMeshes} wireframe={wireframe} toon={toon} faceSdfEnabled={faceSdfEnabled} faceRefineStrength={faceRefineStrength / 100} faceTrickStrength={faceTrickStrength / 100} corneaStrength={corneaStrength} hairSpecular={hairSpecular} hairSpecularStrength={hairSpecularStrength / 100} dayStrength={dayStrength} fillStrength={fillStrength} rimStrength={rimStrength} scatterStrength={scatterStrength} outlinePixels={outlinePixels} iblStrength={iblStrength} environmentPreset={environmentPreset} bloom={bloom} shadows={shadows} showGrid={showGrid} lightLevel={lightLevel} mainLightAzimuth={mainLightAzimuth} mainLightElevation={mainLightElevation} windEnabled={windEnabled} windStrength={windStrength} windSpeed={windSpeed} windDirection={windDirection} modelRoot={modelRoot} onReady={readyCallback} onSelect={onSelect} orbitRef={orbitRef} stageTint={stageTint} /></div>
             {!modelLoaded && <div className="loading-overlay"><div className="loading"><LoaderCircle size={18} className="spin" /><span>正在载入 3D 模型与贴图</span></div></div>}
             <div className="stage-heading"><h1>角色预览</h1><p>实时材质与灯光观察</p></div>
             <div className="stage-meta"><span>{meshRows.length || 13} 个模型部件</span><i /> <span>377,305 个三角面</span><i /> <span>无动画</span></div>
@@ -573,6 +653,13 @@ export default function App() {
 
           <section className="inspect-section">
             <div className="section-heading"><span>渲染设置</span><Gauge size={14} /></div>
+            <label className="setting-select"><span>环境预设</span><select aria-label="环境预设" value={environmentPreset} onChange={(e) => setEnvironmentPreset(e.target.value)}>{Object.entries(environmentPresets).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}</select></label>
+            <label className="setting-range"><span>主光方位</span><input aria-label="主光方位" type="range" min="0" max="360" value={mainLightAzimuth} onChange={(e) => setMainLightAzimuth(Number(e.target.value))} /><output>{mainLightAzimuth}°</output></label>
+            <label className="setting-range"><span>主光高度</span><input aria-label="主光高度" type="range" min="10" max="85" value={mainLightElevation} onChange={(e) => setMainLightElevation(Number(e.target.value))} /><output>{mainLightElevation}°</output></label>
+            <label className="setting-row"><span><Scan size={15} />风动与柔软感</span><button className={`switch ${windEnabled ? 'on' : ''}`} role="switch" aria-checked={windEnabled} onClick={() => setWindEnabled((v) => !v)}><i /></button></label>
+            <label className="setting-range"><span>风向</span><input aria-label="风向" type="range" min="0" max="359" value={windDirection} onChange={(e) => setWindDirection(Number(e.target.value))} /><output>{windDirection}°</output></label>
+            <label className="setting-range"><span>风力</span><input aria-label="风力" type="range" min="0" max="100" value={windStrength} onChange={(e) => setWindStrength(Number(e.target.value))} /><output>{windStrength}%</output></label>
+            <label className="setting-range"><span>风速</span><input aria-label="风速" type="range" min="0" max="100" value={windSpeed} onChange={(e) => setWindSpeed(Number(e.target.value))} /><output>{windSpeed}%</output></label>
             <label className="setting-row"><span><Sun size={15} />投射阴影</span><button className={`switch ${shadows ? 'on' : ''}`} role="switch" aria-checked={shadows} onClick={() => setShadows((v) => !v)}><i /></button></label>
             <label className="setting-row"><span><Grid2X2 size={15} />线框模式</span><button className={`switch ${wireframe ? 'on' : ''}`} role="switch" aria-checked={wireframe} onClick={() => setWireframe((v) => !v)}><i /></button></label>
             <label className="setting-row"><span><Scan size={15} />Ramp 分层光照</span><button className={`switch ${toon ? 'on' : ''}`} role="switch" aria-checked={toon} onClick={() => setToon((v) => !v)}><i /></button></label>
